@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Sparkles, Loader2, Check, Lightbulb, Clock, Users, ChevronDown, ChevronUp } from "lucide-react";
+import { Sparkles, Loader2, Check, Lightbulb, Clock, Users, ChevronDown, ChevronUp, ShieldCheck, Palette } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -144,9 +144,20 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
                     />
                     <Badge variant="outline" className="mt-1 text-[10px]">{result.category}</Badge>
                   </div>
-                  <Badge className="bg-primary/10 text-primary border-0 text-[10px] shrink-0 ml-2">
-                    <Sparkles className="h-3 w-3 mr-0.5" />AI Generated
-                  </Badge>
+                  <div className="flex flex-col items-end gap-1 shrink-0 ml-2">
+                    <Badge className="bg-primary/10 text-primary border-0 text-[10px]">
+                      <Sparkles className="h-3 w-3 mr-0.5" />AI Generated
+                    </Badge>
+                    {(result.category === "promotional" || result.category === "welcome") ? (
+                      <Badge variant="outline" className="text-[10px] text-purple-600 border-purple-200 bg-purple-50">
+                        <Palette className="h-3 w-3 mr-0.5" />Branded HTML
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-200 bg-emerald-50">
+                        <ShieldCheck className="h-3 w-3 mr-0.5" />Deliverability optimized
+                      </Badge>
+                    )}
+                  </div>
                 </div>
                 <p className="text-xs text-muted-foreground italic">{result.rationale}</p>
               </div>
