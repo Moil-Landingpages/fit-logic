@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Sparkles, Loader2, Check, ArrowRight, ArrowLeft, Mail, Layers, Users, Clock, Eye, Lightbulb, Pencil, X } from "lucide-react";
+import { Sparkles, Loader2, Check, ArrowRight, ArrowLeft, Mail, Layers, Users, Clock, Eye, Lightbulb, Pencil, X, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -258,9 +258,14 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
                       />
                       <Badge variant="outline" className="mt-1 text-[10px]">{result.category}</Badge>
                     </div>
-                    <Badge className="bg-primary/10 text-primary border-0 text-[10px]">
-                      <Sparkles className="h-3 w-3 mr-0.5" />AI Generated
-                    </Badge>
+                    <div className="flex flex-col items-end gap-1">
+                      <Badge className="bg-primary/10 text-primary border-0 text-[10px]">
+                        <Sparkles className="h-3 w-3 mr-0.5" />AI Generated
+                      </Badge>
+                      <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-200 bg-emerald-50">
+                        <ShieldCheck className="h-3 w-3 mr-0.5" />Deliverability optimized
+                      </Badge>
+                    </div>
                   </div>
                   <p className="text-xs text-muted-foreground italic">{result.rationale}</p>
                   <div className="flex gap-4">

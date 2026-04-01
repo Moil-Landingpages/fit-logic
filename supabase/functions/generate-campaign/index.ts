@@ -6,6 +6,31 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// Near-plain-text format instructions — used for all sequences and outreach/follow-up single campaigns.
+// Research (Hunter, Instantly, Lemlist 2024-2025): HTML outreach emails bounce 674% more than plain text.
+// Sequences without open tracking generate 68% higher reply rates. Apollo/Smartlead/Instantly all default to this format.
+const TEXT_STYLE_FORMAT = `
+EMAIL BODY FORMAT — NEAR-PLAIN-TEXT HTML (critical for deliverability):
+- Use ONLY <p> and <a href="..."> and <br> tags. Nothing else.
+- NO images, NO tables, NO divs, NO spans, NO inline CSS, NO background colors, NO decorative elements.
+- NO bold or italic unless a single word truly needs emphasis (<strong> one word max).
+- Should look exactly like a personal email typed by a human in Gmail.
+- Structure: greeting <p>, 1-2 short body <p> paragraphs (under 75 words each), one CTA as a plain <a> link or text question, sign-off <p>.
+- Keep total word count under 150 words. Short = higher reply rates.
+`;
+
+// Light branded HTML — used only for welcome and promotional campaigns where the recipient opted in.
+// These land in Gmail Promotions tab (expected) or inbox for engaged lists.
+const PROMO_HTML_FORMAT = `
+EMAIL BODY FORMAT — LIGHT BRANDED HTML:
+- Single-column centered layout using a <table> wrapper (max-width: 600px, margin: 0 auto).
+- One optional header image: <img src="https://placehold.co/600x200/1a1a2e/ffffff?text=Your+Header+Image" alt="Header" style="width:100%;max-width:600px;display:block;border:0">
+- Body copy in <p> tags with inline styles: font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:15px; line-height:1.6; color:#1a1a1a
+- One clear CTA as a styled <a> button: background:#2563eb; color:#fff; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:600; display:inline-block
+- Footer: small <p> with company name in muted color (#6b7280, font-size:12px)
+- 60% text minimum. Max 1 image. No external CSS or scripts.
+`;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -29,7 +54,7 @@ serve(async (req) => {
     const count = emailCount || 3;
 
     const systemPrompt = isSequence
-      ? `You are a cold email and marketing campaign expert for a business CRM platform.
+      ? `You are a cold email and sales outreach expert for a business CRM platform.
 Generate a complete multi-email sequence based on the user's request.
 
 ${segmentContext}
@@ -37,26 +62,33 @@ ${segmentContext}
 You MUST use the generate_sequence tool to return your response.
 Generate ${count} emails following cold email best practices:
 - Email 1: Introduction and value proposition. Short, personal, ask one question.
-- Email 2: Follow up referencing email 1. Add social proof or case study. Wait 2-3 days.
-- Email 3: Different angle, share insight or resource. Wait 3-4 days.
-- Email 4 (if needed): Create urgency or time-sensitive offer. Wait 4-5 days.
-- Email 5 (if needed): Break-up email, last chance. Often gets highest reply rate. Wait 5-7 days.
+- Email 2: Follow up referencing email 1. Add social proof or a brief case study. Wait 2-3 days.
+- Email 3: Different angle, share a relevant insight or resource. Wait 3-4 days.
+- Email 4 (if needed): Create urgency or share a time-sensitive offer. Wait 4-5 days.
+- Email 5 (if needed): Break-up email — last follow-up, often gets the highest reply rate. Wait 5-7 days.
 
-Keep subject lines 6-10 words. Body should be well-formatted HTML with inline styles.
-Use warm, professional tone. Include clear calls-to-action.
-Suggest optimal timing and best matching audience segment.`
+Keep subject lines 6-10 words. Use a warm, direct, human tone.
+
+${TEXT_STYLE_FORMAT}
+
+Suggest optimal timing and the best matching audience segment.`
+
       : `You are a marketing campaign strategist for a business CRM platform.
 Generate a complete email campaign based on the user's request.
 
 ${segmentContext}
 
-You MUST use the generate_campaign tool to return your response. Generate compelling, professional marketing content.
-- Subject lines should be 6-10 words, attention-grabbing but professional
-- Email body should be well-formatted HTML with inline styles
-- Use warm, empowering tone appropriate for the business
-- Include a clear call-to-action
+You MUST use the generate_campaign tool to return your response. Generate compelling, professional content.
+- Subject lines: 6-10 words, attention-grabbing but natural
+- Determine the best category for this campaign (welcome, followup, promotional, educational, reactivation)
 - Suggest the best matching segment from the available ones
-- Suggest optimal send timing based on the campaign type`;
+- Suggest optimal send timing based on the campaign type
+
+EMAIL BODY FORMAT — choose based on the category you select:
+- If category is "welcome" or "promotional" (recipient opted in, expects branding):
+${PROMO_HTML_FORMAT}
+- If category is "followup", "educational", or "reactivation" (personal outreach):
+${TEXT_STYLE_FORMAT}`;
 
     const tools = isSequence
       ? [{
@@ -80,7 +112,7 @@ You MUST use the generate_campaign tool to return your response. Generate compel
                       step: { type: "number" },
                       subject: { type: "string" },
                       previewText: { type: "string", description: "Under 100 chars" },
-                      bodyHtml: { type: "string", description: "Full email HTML with inline styles" },
+                      bodyHtml: { type: "string", description: "Near-plain-text HTML: only <p>, <a>, <br> tags. No images, no tables, no inline CSS. Personal human email style." },
                       delayDays: { type: "number", description: "Days to wait after previous email (0 for first)" },
                       tip: { type: "string", description: "Brief best-practice tip for this step" },
                     },
@@ -105,7 +137,7 @@ You MUST use the generate_campaign tool to return your response. Generate compel
                 campaignName: { type: "string", description: "Short campaign name (3-6 words)" },
                 subject: { type: "string", description: "Email subject line" },
                 previewText: { type: "string", description: "Email preview text shown in inbox (under 100 chars)" },
-                bodyHtml: { type: "string", description: "Full email body as clean HTML with inline styles. Use professional layout." },
+                bodyHtml: { type: "string", description: "Email body HTML. Use near-plain-text for followup/educational/reactivation. Use light branded HTML for welcome/promotional." },
                 category: { type: "string", enum: ["welcome", "followup", "promotional", "educational", "reactivation"] },
                 suggestedSegment: { type: "string", description: "Name of the best matching segment" },
                 sendTimeRecommendation: { type: "string", description: "When to send (e.g., 'Tuesday 10am')" },

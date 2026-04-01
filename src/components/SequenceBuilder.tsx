@@ -283,7 +283,7 @@ Return an improved version maintaining the same general intent but with better c
                       ) : (
                         <div className="space-y-3">
                           <Textarea value={step.body_html} onChange={(e) => updateStep(step.id, { body_html: e.target.value })}
-                            placeholder="Write your email content as HTML..." className="text-sm font-mono min-h-[180px]" />
+                            placeholder="Write email copy as near-plain-text HTML for best deliverability. Use only <p>, <a href>, and <br> tags — no images, no tables, no inline styles." className="text-sm font-mono min-h-[180px]" />
                           {step.body_html && (
                             <div>
                               <p className="text-[10px] text-muted-foreground mb-1.5">Live Preview</p>
