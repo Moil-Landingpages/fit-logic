@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Sparkles, Loader2, Check, ArrowRight, ArrowLeft, Mail, Layers, Users, Clock, Eye, Lightbulb, Pencil, EyeOff } from "lucide-react";
+import { Sparkles, Loader2, Check, ArrowRight, ArrowLeft, Mail, Layers, Users, Clock, Eye, Lightbulb, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -57,7 +57,7 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
   const [additionalContext, setAdditionalContext] = useState("");
   const [result, setResult] = useState<AIWizardResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [previewIdx, setPreviewIdx] = useState<number | null>(null);
+  const [previewEmail, setPreviewEmail] = useState<GeneratedEmail | null>(null);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
 
   const handleGenerate = async () => {
@@ -122,7 +122,7 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
     setAdditionalContext("");
     setResult(null);
     setError(null);
-    setPreviewIdx(null);
+    setPreviewEmail(null);
     setEditingIdx(null);
   };
 
@@ -285,10 +285,9 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
                 <div className="space-y-3">
                   {result.emails.map((email, idx) => {
                     const isEditing = editingIdx === idx;
-                    const isPreviewing = previewIdx === idx;
-                    
+
                     return (
-                      <Card key={idx} className={`transition-colors ${isPreviewing || isEditing ? "border-primary/40" : ""}`}>
+                      <Card key={idx} className={`transition-colors ${isEditing ? "border-primary/40" : ""}`}>
                         <CardContent className="p-0">
                           {/* Header */}
                           <div className="flex items-center gap-2 p-3">
@@ -297,16 +296,17 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
                             <span className="text-sm font-medium truncate flex-1">{email.subject}</span>
                             <div className="flex items-center gap-1">
                               <Button
-                                variant={isPreviewing ? "secondary" : "ghost"}
-                                size="sm" className="h-6 w-6 p-0"
-                                onClick={() => { setPreviewIdx(isPreviewing ? null : idx); setEditingIdx(null); }}
+                                variant="ghost"
+                                size="sm" className="h-6 px-2 text-[10px] gap-1"
+                                onClick={() => setPreviewEmail(email)}
+                                title="Preview email"
                               >
-                                {isPreviewing ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                                <Eye className="h-3 w-3" />Preview
                               </Button>
                               <Button
                                 variant={isEditing ? "secondary" : "ghost"}
                                 size="sm" className="h-6 w-6 p-0"
-                                onClick={() => { setEditingIdx(isEditing ? null : idx); setPreviewIdx(null); }}
+                                onClick={() => setEditingIdx(isEditing ? null : idx)}
                               >
                                 <Pencil className="h-3 w-3" />
                               </Button>
@@ -314,20 +314,8 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
                           </div>
 
                           {/* Tip */}
-                          {(isPreviewing || isEditing) && email.tip && (
+                          {isEditing && email.tip && (
                             <p className="px-3 text-[10px] text-muted-foreground italic">💡 {email.tip}</p>
-                          )}
-
-                          {/* Preview */}
-                          {isPreviewing && (
-                            <div className="px-3 pb-3 border-t mt-2">
-                              <EmailPreview
-                                html={email.bodyHtml}
-                                subject={email.subject}
-                                previewText={email.previewText}
-                                className="mt-3"
-                              />
-                            </div>
                           )}
 
                           {/* Edit mode */}
@@ -414,6 +402,55 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
             </>
           )}
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Full-screen email preview dialog */}
+    <Dialog open={!!previewEmail} onOpenChange={v => !v && setPreviewEmail(null)}>
+      <DialogContent className="max-w-3xl h-[92vh] flex flex-col p-0 gap-0">
+        <DialogHeader className="px-4 py-3 border-b shrink-0 flex-row items-center justify-between space-y-0">
+          <div className="min-w-0">
+            <DialogTitle className="text-sm font-semibold truncate">
+              {previewEmail?.subject || "Email Preview"}
+            </DialogTitle>
+            {previewEmail?.previewText && (
+              <p className="text-xs text-muted-foreground truncate mt-0.5">{previewEmail.previewText}</p>
+            )}
+          </div>
+          {previewEmail && (
+            <Badge variant="outline" className="text-[10px] font-mono shrink-0 ml-3">
+              Step {previewEmail.step}
+            </Badge>
+          )}
+        </DialogHeader>
+        <div className="flex-1 overflow-y-auto flex justify-center bg-muted/10 p-6">
+          <div className="bg-background rounded-lg shadow-md border w-full max-w-[620px]">
+            {previewEmail && (() => {
+              const wrapped = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a;background:#fff}img{max-width:100%;height:auto}a{color:#2563eb}p{margin:0 0 12px}</style></head><body>${previewEmail.bodyHtml || '<p style="color:#999;text-align:center;padding:40px">No email content</p>'}</body></html>`;
+              return (
+                <iframe
+                  srcDoc={wrapped}
+                  className="w-full border-0 block rounded-lg"
+                  style={{ minHeight: 500 }}
+                  sandbox="allow-same-origin"
+                  title="Email preview"
+                  onLoad={(e) => {
+                    const iframe = e.target as HTMLIFrameElement;
+                    const resize = () => {
+                      try {
+                        const body = iframe.contentDocument?.body;
+                        if (body) iframe.style.height = Math.max(500, body.scrollHeight + 32) + "px";
+                      } catch { /* cross-origin guard */ }
+                    };
+                    resize();
+                    setTimeout(resize, 150);
+                    setTimeout(resize, 500);
+                  }}
+                />
+              );
+            })()}
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );
