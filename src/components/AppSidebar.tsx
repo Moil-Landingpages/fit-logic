@@ -23,7 +23,7 @@ const mainItems = [
   { title: "Inbox", url: "/inbox", icon: Inbox },
   { title: "Campaigns", url: "/campaigns", icon: Mail },
   { title: "Contacts", url: "/contacts", icon: Users },
-  { title: "Lead Forms", url: "/forms", icon: ClipboardList },
+  // { title: "Lead Forms", url: "/forms", icon: ClipboardList },
   { title: "FAQs", url: "/faqs", icon: FileText },
   { title: "Referrals", url: "/referrals", icon: Share2 },
 ];
