@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, Mail, TrendingUp, ArrowRight,
-  ClipboardList, Share2, Target, DollarSign
+  Share2, DollarSign
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -36,19 +36,19 @@ const Index = () => {
     },
   });
 
-  const { data: submissions = [] } = useQuery({
-    queryKey: ["intake_submissions"],
-    queryFn: async () => {
-      const { data } = await supabase.from("intake_submissions").select("id, review_status, created_at").order("created_at", { ascending: false }).limit(50);
-      return data || [];
-    },
-  });
+  // const { data: submissions = [] } = useQuery({
+  //   queryKey: ["intake_submissions"],
+  //   queryFn: async () => {
+  //     const { data } = await supabase.from("intake_submissions").select("id, review_status, created_at").order("created_at", { ascending: false }).limit(50);
+  //     return data || [];
+  //   },
+  // });
 
   // Metrics
   const activeContacts = contacts.filter(c => c.status === "active").length;
   const activeCampaigns = campaigns.filter(c => c.status === "active" || c.status === "scheduled").length;
   const totalSent = campaigns.reduce((s, c) => s + (c.sent_count || 0), 0);
-  const pendingLeads = submissions.filter(s => s.review_status === "pending").length;
+  // const pendingLeads = submissions.filter(s => s.review_status === "pending").length;
   const convertedReferrals = referrals.filter(r => r.status === "converted").length;
   const recentContacts = contacts.slice(0, 5);
   const recentCampaigns = campaigns.slice(0, 4);
@@ -57,7 +57,7 @@ const Index = () => {
     { label: "Active Contacts", value: activeContacts, icon: Users, color: "text-emerald-600", bg: "bg-emerald-500/10", action: () => navigate("/contacts") },
     { label: "Live Campaigns", value: activeCampaigns, icon: Mail, color: "text-primary", bg: "bg-primary/10", action: () => navigate("/campaigns") },
     { label: "Emails Sent", value: totalSent, icon: TrendingUp, color: "text-blue-600", bg: "bg-blue-500/10", action: () => navigate("/campaigns") },
-    { label: "Pending Leads", value: pendingLeads, icon: Target, color: "text-amber-600", bg: "bg-amber-500/10", action: () => navigate("/forms") },
+    // { label: "Pending Leads", value: pendingLeads, icon: Target, color: "text-amber-600", bg: "bg-amber-500/10", action: () => navigate("/forms") },
   ];
 
   return (
@@ -170,7 +170,7 @@ const Index = () => {
             {[
               { label: "New Campaign", icon: Mail, path: "/campaigns", color: "text-primary" },
               { label: "Add Contact", icon: Users, path: "/contacts", color: "text-emerald-600" },
-              { label: "Lead Forms", icon: ClipboardList, path: "/forms", color: "text-amber-600" },
+              // { label: "Lead Forms", icon: ClipboardList, path: "/forms", color: "text-amber-600" },
               { label: "Referrals", icon: Share2, path: "/referrals", color: "text-blue-600" },
             ].map((a) => (
               <Button key={a.label} variant="outline" className="h-auto py-4 flex-col gap-2" onClick={() => navigate(a.path)}>

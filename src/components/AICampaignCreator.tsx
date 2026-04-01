@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Sparkles, Loader2, Eye, EyeOff, Check, Lightbulb, Clock, Users, Pencil } from "lucide-react";
+import { Sparkles, Loader2, Check, Lightbulb, Clock, Users, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,8 +42,7 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState<AICampaignResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showPreview, setShowPreview] = useState(true);
-  const [isEditing, setIsEditing] = useState(false);
+  const [showEditFields, setShowEditFields] = useState(false);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
@@ -81,8 +80,7 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
     setPrompt("");
     setResult(null);
     setError(null);
-    setShowPreview(true);
-    setIsEditing(false);
+    setShowEditFields(false);
   };
 
   return (
@@ -135,46 +133,42 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
             </div>
           ) : (
             <div className="space-y-4 py-2">
-              {/* Result header */}
+              {/* Campaign name + meta */}
               <div className="rounded-lg border bg-primary/5 p-4">
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex-1">
-                    {isEditing ? (
-                      <Input
-                        value={result.campaignName}
-                        onChange={e => setResult({ ...result, campaignName: e.target.value })}
-                        className="font-heading font-semibold border-0 bg-transparent px-0 h-auto text-base focus-visible:ring-0"
-                      />
-                    ) : (
-                      <h3 className="font-heading font-semibold text-foreground">{result.campaignName}</h3>
-                    )}
+                    <Input
+                      value={result.campaignName}
+                      onChange={e => setResult({ ...result, campaignName: e.target.value })}
+                      className="font-heading font-semibold border-0 bg-transparent px-0 h-auto text-base focus-visible:ring-0"
+                    />
                     <Badge variant="outline" className="mt-1 text-[10px]">{result.category}</Badge>
                   </div>
-                  <Badge className="bg-primary/10 text-primary border-0 text-[10px]">
+                  <Badge className="bg-primary/10 text-primary border-0 text-[10px] shrink-0 ml-2">
                     <Sparkles className="h-3 w-3 mr-0.5" />AI Generated
                   </Badge>
                 </div>
-                <p className="text-xs text-muted-foreground italic mt-2">{result.rationale}</p>
+                <p className="text-xs text-muted-foreground italic">{result.rationale}</p>
               </div>
 
-              {/* Email content */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-medium text-foreground">Email Content</h4>
-                  <div className="flex gap-1">
-                    <Button variant={showPreview ? "secondary" : "ghost"} size="sm" className="h-7 px-2 text-xs"
-                      onClick={() => { setShowPreview(true); setIsEditing(false); }}>
-                      <Eye className="h-3 w-3 mr-1" />Preview
-                    </Button>
-                    <Button variant={isEditing ? "secondary" : "ghost"} size="sm" className="h-7 px-2 text-xs"
-                      onClick={() => { setIsEditing(true); setShowPreview(false); }}>
-                      <Pencil className="h-3 w-3 mr-1" />Edit
-                    </Button>
-                  </div>
-                </div>
+              {/* Email preview — always visible */}
+              <EmailPreview
+                html={result.bodyHtml}
+                subject={result.subject}
+                previewText={result.previewText}
+              />
 
-                {isEditing ? (
-                  <div className="space-y-3">
+              {/* Collapsible edit fields */}
+              <div className="rounded-lg border overflow-hidden">
+                <button
+                  className="w-full flex items-center justify-between px-3 py-2.5 text-left bg-muted/30 hover:bg-muted/50 transition-colors"
+                  onClick={() => setShowEditFields(!showEditFields)}
+                >
+                  <span className="text-sm font-medium text-foreground">Edit Subject, Preview Text & Body</span>
+                  {showEditFields ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                </button>
+                {showEditFields && (
+                  <div className="p-3 space-y-3 border-t">
                     <div>
                       <Label className="text-xs text-muted-foreground">Subject Line</Label>
                       <Input value={result.subject} onChange={e => setResult({ ...result, subject: e.target.value })} className="mt-1 text-sm" />
@@ -192,13 +186,7 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
                       />
                     </div>
                   </div>
-                ) : showPreview ? (
-                  <EmailPreview
-                    html={result.bodyHtml}
-                    subject={result.subject}
-                    previewText={result.previewText}
-                  />
-                ) : null}
+                )}
               </div>
 
               <Separator />

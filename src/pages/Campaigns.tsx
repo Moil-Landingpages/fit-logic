@@ -280,7 +280,7 @@ const Campaigns_Page = () => {
     if (!tpl) return;
     const matchSeg = segments.find(s => s.name.toLowerCase().includes(result.suggestedSegment.toLowerCase()));
     await supabase.from("campaigns").insert({
-      name: result.campaignName, status: "draft", template_id: tpl.id, segment_id: matchSeg?.id || segments[0]?.id,
+      name: result.campaignName, status: "draft", template_id: tpl.id, segment_id: matchSeg?.id || null,
     });
     invalidateAll();
     toast({ title: "AI campaign created!" });
@@ -312,7 +312,7 @@ const Campaigns_Page = () => {
       }).select().single();
       if (!tpl) return;
       await supabase.from("campaigns").insert({
-        name: result.campaignName, status: "draft", template_id: tpl.id, segment_id: matchSeg?.id || segments[0]?.id,
+        name: result.campaignName, status: "draft", template_id: tpl.id, segment_id: matchSeg?.id || null,
       });
     }
     invalidateAll();
@@ -449,6 +449,15 @@ const Campaigns_Page = () => {
         </TabsContent>
 
         <TabsContent value="templates" className="mt-4 space-y-3">
+          {filteredTemplates.length === 0 && (
+            <Card><CardContent className="py-12 text-center text-muted-foreground">
+              <FileText className="h-8 w-8 mx-auto mb-2 opacity-40" />
+              <p className="text-sm font-medium mb-3">No templates yet</p>
+              <Button size="sm" onClick={() => { setEditingTemplate({ name: "", subject: "", preview_text: "", body_html: "", category: "welcome" }); setShowTemplateEditor(true); }}>
+                <Plus className="h-3.5 w-3.5 mr-1" />Create Template
+              </Button>
+            </CardContent></Card>
+          )}
           {filteredTemplates.map(tpl => {
             const catCfg = TEMPLATE_CATEGORY_CONFIG[tpl.category];
             return (
@@ -517,10 +526,15 @@ const Campaigns_Page = () => {
 
               {editingCampaign?.campaign_type === "single" && (
                 <div>
-                  <Label className="text-sm">Template</Label>
+                  <Label className="text-sm">Template <span className="text-destructive">*</span></Label>
                   <Select value={editingCampaign?.template_id || ""} onValueChange={v => setEditingCampaign(p => ({ ...p, template_id: v }))}>
                     <SelectTrigger><SelectValue placeholder="Select template" /></SelectTrigger>
-                    <SelectContent>{templates.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent>
+                    <SelectContent>
+                      {templates.length === 0
+                        ? <div className="px-3 py-2 text-xs text-muted-foreground">No templates yet — close this and create one with "New Template"</div>
+                        : templates.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)
+                      }
+                    </SelectContent>
                   </Select>
                 </div>
               )}
@@ -556,7 +570,12 @@ const Campaigns_Page = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={closeBuilder}>Cancel</Button>
-            <Button className="gradient-brand text-primary-foreground" onClick={() => editingCampaign && saveCampaignMut.mutate(editingCampaign)} disabled={saveCampaignMut.isPending || !editingCampaign?.name}>
+            <Button className="gradient-brand text-primary-foreground" onClick={() => editingCampaign && saveCampaignMut.mutate(editingCampaign)} disabled={
+              saveCampaignMut.isPending ||
+              !editingCampaign?.name ||
+              (editingCampaign?.campaign_type === "single" && !editingCampaign?.template_id) ||
+              (editingCampaign?.campaign_type === "sequence" && sequenceSteps.length === 0)
+            }>
               {saveCampaignMut.isPending ? "Saving..." : "Save Campaign"}
             </Button>
           </DialogFooter>
