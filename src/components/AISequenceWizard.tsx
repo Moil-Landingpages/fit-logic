@@ -127,6 +127,7 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={v => { if (!v) handleReset(); onOpenChange(v); }}>
       <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
         <DialogHeader>
@@ -453,5 +454,6 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
         </div>
       </DialogContent>
     </Dialog>
+    </>
   );
 }
