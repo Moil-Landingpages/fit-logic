@@ -91,12 +91,13 @@ export function InquiryDetail({ inquiry, onUpdate }: Props) {
   };
 
   const handleEscalate = async () => {
-    const meganId = staff.find((s) => s.name === "Megan")?.id || null;
-    const updates = { status: "escalated", assigned_to: meganId };
+    // Assign to the first admin or manager on the team, or leave unassigned
+    const escalationTarget = staff.find((s) => s.role === "admin" || s.role === "manager") || null;
+    const updates = { status: "escalated", assigned_to: escalationTarget?.id || null };
     const { error } = await supabase.from("inquiries").update(updates).eq("id", inquiry.id);
     if (error) { toast.error(error.message); return; }
     onUpdate(inquiry.id, updates);
-    toast.warning("Escalated to Megan");
+    toast.warning(escalationTarget ? `Escalated to ${escalationTarget.name}` : "Marked as escalated");
   };
 
   const handleSendReply = async () => {
@@ -217,8 +218,11 @@ export function InquiryDetail({ inquiry, onUpdate }: Props) {
 
             <div>
               <Textarea placeholder="Write a reply..." value={reply} onChange={(e) => setReply(e.target.value)} className="min-h-[100px] bg-background" />
-              <div className="flex justify-end mt-2">
-                <Button onClick={handleSendReply} disabled={!reply.trim()} className="gap-1.5 gradient-brand text-primary-foreground">
+              <div className="flex items-center justify-between mt-2 gap-3">
+                <p className="text-[10px] text-muted-foreground">
+                  Reply is saved to the record. Actual email delivery requires an SMTP account connected in Settings → Integrations.
+                </p>
+                <Button onClick={handleSendReply} disabled={!reply.trim()} className="gap-1.5 gradient-brand text-primary-foreground shrink-0">
                   <Send className="h-3.5 w-3.5" />
                   Send Reply
                 </Button>
