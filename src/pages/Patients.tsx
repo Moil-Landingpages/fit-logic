@@ -1,11 +1,12 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import {
-  Users, Plus, Search, MoreHorizontal, Mail, Phone, Building2,
+  Users, Plus, Search, MoreHorizontal, Mail, Building2,
   Eye, Pencil, Trash2, ChevronLeft, ArrowUpDown, Tag, StickyNote,
-  MapPin, DollarSign, TrendingUp, Clock, Send, ExternalLink,
+  Clock, Send,
+  Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { PatientForm, type PatientFormData } from "@/components/PatientForm";
 import { PatientTimeline } from "@/components/PatientTimeline";
 
@@ -105,6 +107,15 @@ function LeadSourceBadge({ source }: { source: string | null }) {
   );
 }
 
+interface ImportRow {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone?: string;
+  company?: string;
+  status?: string;
+}
+
 export default function Patients() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -115,6 +126,11 @@ export default function Patients() {
   const [viewing, setViewing] = useState<Patient | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Patient | null>(null);
   const [detailTab, setDetailTab] = useState("overview");
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importRows, setImportRows] = useState<ImportRow[]>([]);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   const { data: patients = [], isLoading } = useQuery({
     queryKey: ["patients"],
@@ -205,6 +221,118 @@ export default function Patients() {
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      // Detect separator: tab or comma
+      const firstLine = text.split("\n")[0];
+      const sep = firstLine.includes("\t") ? "\t" : ",";
+      const lines = text.split("\n").filter(l => l.trim());
+      if (lines.length < 2) {
+        setImportErrors(["File appears empty or has no data rows."]);
+        setImportRows([]);
+        setShowImportDialog(true);
+        return;
+      }
+      const headers = lines[0].split(sep).map(h => h.trim().toLowerCase().replace(/^"|"$/g, "").replace(/\s+/g, "_"));
+      const getIdx = (...names: string[]) => headers.findIndex(h => names.some(n => h.includes(n)));
+
+      const firstNameIdx = getIdx("first_name", "first", "firstname");
+      const lastNameIdx = getIdx("last_name", "last", "surname", "lastname");
+      const fullNameIdx = getIdx("full_name", "name", "fullname");
+      const emailIdx = getIdx("email");
+      const phoneIdx = getIdx("phone", "mobile", "cell");
+      const companyIdx = getIdx("company", "organization", "employer", "insurance_provider");
+      const statusIdx = getIdx("status", "lead_status");
+
+      const errors: string[] = [];
+      if (emailIdx === -1 && firstNameIdx === -1 && fullNameIdx === -1) {
+        errors.push("Could not find required columns. Expected: email, first_name / last_name (or name).");
+        setImportErrors(errors);
+        setImportRows([]);
+        setShowImportDialog(true);
+        return;
+      }
+
+      const rows: ImportRow[] = [];
+      const existingEmails = new Set(patients.map(p => (p.email || "").toLowerCase()));
+
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(sep).map(c => c.trim().replace(/^"|"$/g, ""));
+        if (cols.every(c => !c)) continue;
+
+        let firstName = "";
+        let lastName = "";
+        if (firstNameIdx >= 0) {
+          firstName = cols[firstNameIdx] || "";
+          lastName = lastNameIdx >= 0 ? cols[lastNameIdx] || "" : "";
+        } else if (fullNameIdx >= 0) {
+          const parts = (cols[fullNameIdx] || "").trim().split(/\s+/);
+          firstName = parts[0] || "";
+          lastName = parts.slice(1).join(" ") || "";
+        }
+        if (!firstName) {
+          errors.push(`Row ${i + 1}: missing first name — skipped`);
+          continue;
+        }
+
+        const email = emailIdx >= 0 ? cols[emailIdx] || "" : "";
+        if (email && existingEmails.has(email.toLowerCase())) {
+          errors.push(`Row ${i + 1}: ${email} already exists — skipped`);
+          continue;
+        }
+
+        const rawStatus = statusIdx >= 0 ? (cols[statusIdx] || "").toLowerCase() : "";
+        const status = ["active", "inactive", "archived"].includes(rawStatus) ? rawStatus : "active";
+
+        rows.push({
+          first_name: firstName,
+          last_name: lastName,
+          email,
+          phone: phoneIdx >= 0 ? cols[phoneIdx] || "" : "",
+          company: companyIdx >= 0 ? cols[companyIdx] || "" : "",
+          status,
+        });
+      }
+
+      setImportRows(rows);
+      setImportErrors(errors);
+      setShowImportDialog(true);
+    };
+    reader.readAsText(file);
+    if (importFileRef.current) importFileRef.current.value = "";
+  };
+
+  const handleConfirmImport = async () => {
+    if (!importRows.length) return;
+    setIsImporting(true);
+    try {
+      const { error } = await supabase.from("patients").insert(
+        importRows.map(r => ({
+          first_name: r.first_name,
+          last_name: r.last_name,
+          email: r.email || null,
+          phone: r.phone || null,
+          insurance_provider: r.company || null,
+          status: r.status || "active",
+        }))
+      );
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ["patients"] });
+      toast({ title: `Imported ${importRows.length} contact${importRows.length !== 1 ? "s" : ""} successfully` });
+      setShowImportDialog(false);
+      setImportRows([]);
+      setImportErrors([]);
+    } catch (e: any) {
+      toast({ title: "Import failed", description: e.message, variant: "destructive" });
+    } finally {
+      setIsImporting(false);
+    }
+  };
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = { all: patients.length, active: 0, inactive: 0, archived: 0 };
@@ -544,9 +672,15 @@ export default function Patients() {
             Manage your sales pipeline · {patients.length} contact{patients.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <Button onClick={() => { setEditing(null); setFormOpen(true); }} className="gap-1.5 shadow-card">
-          <Plus className="h-4 w-4" /> Add Contact
-        </Button>
+        <div className="flex items-center gap-2">
+          <input ref={importFileRef} type="file" accept=".csv,.tsv,.txt" className="hidden" onChange={handleImportFile} />
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => importFileRef.current?.click()}>
+            <Upload className="h-3.5 w-3.5" /> Import CSV
+          </Button>
+          <Button onClick={() => { setEditing(null); setFormOpen(true); }} className="gap-1.5 shadow-card">
+            <Plus className="h-4 w-4" /> Add Contact
+          </Button>
+        </div>
       </div>
 
       {/* Filters bar */}
@@ -736,6 +870,102 @@ export default function Patients() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* CSV Import Dialog */}
+      <Dialog open={showImportDialog} onOpenChange={(o) => { if (!o) { setShowImportDialog(false); setImportRows([]); setImportErrors([]); } }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5 text-primary" />
+              Import Contacts from CSV
+            </DialogTitle>
+            <DialogDescription>
+              Review the contacts below before importing. Required columns: <code className="text-xs bg-muted px-1 rounded">first_name</code> or <code className="text-xs bg-muted px-1 rounded">name</code>. Optional: <code className="text-xs bg-muted px-1 rounded">last_name</code>, <code className="text-xs bg-muted px-1 rounded">email</code>, <code className="text-xs bg-muted px-1 rounded">phone</code>, <code className="text-xs bg-muted px-1 rounded">company</code>, <code className="text-xs bg-muted px-1 rounded">status</code>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <ScrollArea className="flex-1">
+            <div className="space-y-3 pr-2">
+              {importErrors.length > 0 && (
+                <div className="rounded-lg border border-status-pending/30 bg-status-pending/5 p-3">
+                  <p className="text-xs font-medium text-foreground mb-1.5 flex items-center gap-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 text-status-pending" />
+                    {importErrors.length} row{importErrors.length !== 1 ? "s" : ""} skipped
+                  </p>
+                  <ul className="space-y-0.5">
+                    {importErrors.slice(0, 8).map((e, i) => (
+                      <li key={i} className="text-[11px] text-muted-foreground">{e}</li>
+                    ))}
+                    {importErrors.length > 8 && <li className="text-[11px] text-muted-foreground">…and {importErrors.length - 8} more</li>}
+                  </ul>
+                </div>
+              )}
+
+              {importRows.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                  <AlertCircle className="h-8 w-8 mb-2 opacity-40" />
+                  <p className="text-sm">No valid contacts found to import</p>
+                  <p className="text-xs mt-1">Check that your file has the required columns</p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 text-sm">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                    <span className="font-medium text-foreground">{importRows.length} contact{importRows.length !== 1 ? "s" : ""} ready to import</span>
+                  </div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/30">
+                        <TableHead className="text-xs">Name</TableHead>
+                        <TableHead className="text-xs">Email</TableHead>
+                        <TableHead className="text-xs">Phone</TableHead>
+                        <TableHead className="text-xs">Company</TableHead>
+                        <TableHead className="text-xs">Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {importRows.slice(0, 50).map((row, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="text-xs font-medium">{row.first_name} {row.last_name}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{row.email || "—"}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{row.phone || "—"}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{row.company || "—"}</TableCell>
+                          <TableCell className="text-xs"><StatusPill status={row.status || "active"} /></TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  {importRows.length > 50 && (
+                    <p className="text-xs text-center text-muted-foreground">Showing 50 of {importRows.length} rows</p>
+                  )}
+                </>
+              )}
+            </div>
+          </ScrollArea>
+
+          <div className="flex justify-between items-center pt-3 border-t mt-2">
+            <Button variant="ghost" size="sm" className="text-xs gap-1.5" onClick={() => importFileRef.current?.click()}>
+              <Upload className="h-3.5 w-3.5" /> Choose different file
+            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => { setShowImportDialog(false); setImportRows([]); setImportErrors([]); }}>
+                Cancel
+              </Button>
+              <Button
+                className="gradient-brand text-primary-foreground"
+                onClick={handleConfirmImport}
+                disabled={!importRows.length || isImporting}
+              >
+                {isImporting ? (
+                  <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Importing…</>
+                ) : (
+                  <>Import {importRows.length} Contact{importRows.length !== 1 ? "s" : ""}</>
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

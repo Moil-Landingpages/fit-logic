@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Sparkles, Loader2, Check, Lightbulb, Clock, Users, ChevronDown, ChevronUp, ShieldCheck, Palette } from "lucide-react";
+import { Sparkles, Loader2, Check, Lightbulb, Clock, Users, ChevronDown, ChevronUp, ShieldCheck, Palette, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { EmailPreview } from "@/components/EmailPreview";
 import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 import type { Segment } from "@/lib/campaign-data";
 
 interface AICampaignResult {
@@ -38,11 +39,14 @@ const EXAMPLE_PROMPTS = [
 ];
 
 export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AICampaignCreatorProps) {
+  const { toast } = useToast();
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState<AICampaignResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showEditFields, setShowEditFields] = useState(false);
+  const [aiEditPrompt, setAiEditPrompt] = useState("");
+  const [isAiEditing, setIsAiEditing] = useState(false);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
@@ -68,6 +72,38 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
     }
   };
 
+  const handleAIEdit = async () => {
+    if (!aiEditPrompt.trim() || !result) return;
+    setIsAiEditing(true);
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke("generate-campaign", {
+        body: {
+          prompt: `You are updating an existing email campaign. Apply the following change request to the email below.
+
+Change request: "${aiEditPrompt}"
+
+Current email:
+- Campaign name: ${result.campaignName}
+- Subject: ${result.subject}
+- Preview text: ${result.previewText}
+- Body HTML: ${result.bodyHtml}
+
+Return the full updated campaign JSON with the same structure, incorporating the requested changes. Keep everything else the same unless the change request affects it.`,
+          segments: segments.map((s) => ({ name: s.name, description: s.description, estimatedCount: s.estimatedCount })),
+        },
+      });
+      if (fnError) throw new Error(fnError.message);
+      if (data?.error) throw new Error(data.error);
+      setResult({ ...result, ...data });
+      setAiEditPrompt("");
+      toast({ title: "Email updated with AI ✨" });
+    } catch (e) {
+      toast({ title: "AI Error", description: e instanceof Error ? e.message : "Failed to update", variant: "destructive" });
+    } finally {
+      setIsAiEditing(false);
+    }
+  };
+
   const handleAccept = () => {
     if (result) {
       onAccept(result);
@@ -81,6 +117,7 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
     setResult(null);
     setError(null);
     setShowEditFields(false);
+    setAiEditPrompt("");
   };
 
   return (
@@ -169,13 +206,45 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
                 previewText={result.previewText}
               />
 
-              {/* Collapsible edit fields */}
+              {/* AI Edit section */}
+              <div className="rounded-lg border border-primary/20 bg-primary/3 overflow-hidden">
+                <div className="px-3 py-2.5 bg-primary/5 border-b border-primary/15 flex items-center gap-2">
+                  <Wand2 className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-sm font-medium text-foreground">Ask AI to update this email</span>
+                </div>
+                <div className="p-3 space-y-2">
+                  <Textarea
+                    placeholder='e.g., "Make the subject line more urgent", "Add a P.S. line", "Change the tone to be more casual", "Remove the second paragraph"...'
+                    value={aiEditPrompt}
+                    onChange={e => setAiEditPrompt(e.target.value)}
+                    className="min-h-[60px] resize-none text-sm"
+                    disabled={isAiEditing}
+                    onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleAIEdit(); }}
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      className="gradient-brand text-primary-foreground"
+                      onClick={handleAIEdit}
+                      disabled={!aiEditPrompt.trim() || isAiEditing}
+                    >
+                      {isAiEditing ? (
+                        <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Updating…</>
+                      ) : (
+                        <><Wand2 className="h-3.5 w-3.5 mr-1.5" />Update with AI</>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Collapsible manual edit fields */}
               <div className="rounded-lg border overflow-hidden">
                 <button
                   className="w-full flex items-center justify-between px-3 py-2.5 text-left bg-muted/30 hover:bg-muted/50 transition-colors"
                   onClick={() => setShowEditFields(!showEditFields)}
                 >
-                  <span className="text-sm font-medium text-foreground">Edit Subject, Preview Text & Body</span>
+                  <span className="text-sm font-medium text-foreground">Edit Subject, Preview Text & Body manually</span>
                   {showEditFields ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                 </button>
                 {showEditFields && (

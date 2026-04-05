@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Sparkles, Loader2, Check, ArrowRight, ArrowLeft, Mail, Layers, Users, Clock, Eye, Lightbulb, Pencil, X, ShieldCheck } from "lucide-react";
+import { Sparkles, Loader2, Check, ArrowRight, ArrowLeft, Mail, Layers, Users, Clock, Eye, Lightbulb, Pencil, ShieldCheck, Wand2, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent } from "@/components/ui/card";
 import { EmailPreview } from "@/components/EmailPreview";
 import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 import type { Segment } from "@/lib/campaign-data";
 
 interface GeneratedEmail {
@@ -50,6 +51,7 @@ const GOAL_EXAMPLES = [
 ];
 
 export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AISequenceWizardProps) {
+  const { toast } = useToast();
   const [step, setStep] = useState<WizardStep>("goal");
   const [goal, setGoal] = useState("");
   const [emailCount, setEmailCount] = useState("3");
@@ -59,6 +61,9 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
   const [error, setError] = useState<string | null>(null);
   const [previewEmail, setPreviewEmail] = useState<GeneratedEmail | null>(null);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [previewInlineIdx, setPreviewInlineIdx] = useState<number | null>(null);
+  const [aiEditPrompts, setAiEditPrompts] = useState<Record<number, string>>({});
+  const [aiEditingIdx, setAiEditingIdx] = useState<number | null>(null);
 
   const handleGenerate = async () => {
     setStep("generating");
@@ -106,6 +111,47 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
     setResult({ ...result, emails: newEmails });
   };
 
+  const handleAIEditEmail = async (idx: number) => {
+    if (!result) return;
+    const editPrompt = aiEditPrompts[idx];
+    if (!editPrompt?.trim()) return;
+    const email = result.emails[idx];
+    setAiEditingIdx(idx);
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke("generate-campaign", {
+        body: {
+          prompt: `You are updating email step ${email.step} in a ${result.emails.length}-email sequence. Apply the following change request:
+
+Change request: "${editPrompt}"
+
+Current email:
+- Subject: ${email.subject}
+- Preview text: ${email.previewText}
+- Body HTML: ${email.bodyHtml}
+
+Return the full updated sequence JSON (mode: sequence, emailCount: 1) with the same structure but the updated content for this single email. Incorporate the requested changes while keeping the overall sequence goal in mind.`,
+          segments: segments.map(s => ({ name: s.name, description: s.description, estimatedCount: s.estimatedCount })),
+          mode: "sequence",
+          emailCount: 1,
+        },
+      });
+      if (fnError) throw new Error(fnError.message);
+      if (data?.error) throw new Error(data.error);
+      const updated = data.emails?.[0] || data;
+      updateEmail(idx, {
+        subject: updated.subject || email.subject,
+        previewText: updated.previewText || email.previewText,
+        bodyHtml: updated.bodyHtml || email.bodyHtml,
+      });
+      setAiEditPrompts(prev => ({ ...prev, [idx]: "" }));
+      toast({ title: `Email ${email.step} updated with AI ✨` });
+    } catch (e) {
+      toast({ title: "AI Error", description: e instanceof Error ? e.message : "Failed to update", variant: "destructive" });
+    } finally {
+      setAiEditingIdx(null);
+    }
+  };
+
   const handleAccept = () => {
     if (result) {
       onAccept(result);
@@ -124,6 +170,8 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
     setError(null);
     setPreviewEmail(null);
     setEditingIdx(null);
+    setPreviewInlineIdx(null);
+    setAiEditPrompts({});
   };
 
   return (
@@ -286,11 +334,13 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
                 <h4 className="text-sm font-medium text-foreground mb-3 flex items-center gap-1.5">
                   <Layers className="h-4 w-4 text-primary" />
                   {result.emails.length} Email{result.emails.length !== 1 ? "s" : ""} in Sequence
-                  <span className="text-xs text-muted-foreground font-normal ml-2">Click to preview, pencil to edit</span>
+                  <span className="text-xs text-muted-foreground font-normal ml-2">Edit inline or ask AI to update each email</span>
                 </h4>
                 <div className="space-y-3">
                   {result.emails.map((email, idx) => {
                     const isEditing = editingIdx === idx;
+                    const isPreviewing = previewInlineIdx === idx;
+                    const isAiUpdating = aiEditingIdx === idx;
 
                     return (
                       <Card key={idx} className={`transition-colors ${isEditing ? "border-primary/40" : ""}`}>
@@ -305,14 +355,15 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
                                 variant="ghost"
                                 size="sm" className="h-6 px-2 text-[10px] gap-1"
                                 onClick={() => setPreviewEmail(email)}
-                                title="Preview email"
+                                title="Full screen preview"
                               >
                                 <Eye className="h-3 w-3" />Preview
                               </Button>
                               <Button
                                 variant={isEditing ? "secondary" : "ghost"}
                                 size="sm" className="h-6 w-6 p-0"
-                                onClick={() => setEditingIdx(isEditing ? null : idx)}
+                                onClick={() => { setEditingIdx(isEditing ? null : idx); setPreviewInlineIdx(null); }}
+                                title="Edit manually"
                               >
                                 <Pencil className="h-3 w-3" />
                               </Button>
@@ -326,7 +377,7 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
 
                           {/* Edit mode */}
                           {isEditing && (
-                            <div className="px-3 pb-3 space-y-2 border-t mt-2 pt-3">
+                            <div className="px-3 pb-3 space-y-3 border-t mt-2 pt-3">
                               <div>
                                 <Label className="text-xs text-muted-foreground">Subject</Label>
                                 <Input
@@ -359,13 +410,71 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
                                   </Select>
                                 </div>
                               </div>
-                              <div>
+
+                              {/* Inline preview toggle */}
+                              <div className="flex items-center justify-between">
                                 <Label className="text-xs text-muted-foreground">Email Body (HTML)</Label>
-                                <Textarea
-                                  value={email.bodyHtml}
-                                  onChange={e => updateEmail(idx, { bodyHtml: e.target.value })}
-                                  className="mt-1 text-sm font-mono min-h-[150px]"
-                                />
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 text-[10px]"
+                                  onClick={() => setPreviewInlineIdx(isPreviewing ? null : idx)}
+                                >
+                                  {isPreviewing ? <EyeOff className="h-3 w-3 mr-0.5" /> : <Eye className="h-3 w-3 mr-0.5" />}
+                                  {isPreviewing ? "Edit HTML" : "Preview Design"}
+                                </Button>
+                              </div>
+
+                              {isPreviewing ? (
+                                <EmailPreview html={email.bodyHtml} subject={email.subject} previewText={email.previewText} />
+                              ) : (
+                                <div className="space-y-2">
+                                  <Textarea
+                                    value={email.bodyHtml}
+                                    onChange={e => updateEmail(idx, { bodyHtml: e.target.value })}
+                                    className="mt-0 text-sm font-mono min-h-[150px]"
+                                  />
+                                  {email.bodyHtml && (
+                                    <div>
+                                      <p className="text-[10px] text-muted-foreground mb-1">Live Preview</p>
+                                      <div className="rounded-md border bg-background p-3">
+                                        <div className="prose prose-sm max-w-none text-foreground [&_a]:text-primary" dangerouslySetInnerHTML={{ __html: email.bodyHtml }} />
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* AI edit for this email */}
+                              <div className="rounded-lg border border-primary/20 bg-primary/3 overflow-hidden">
+                                <div className="px-2.5 py-2 bg-primary/5 border-b border-primary/15 flex items-center gap-1.5">
+                                  <Wand2 className="h-3 w-3 text-primary" />
+                                  <span className="text-xs font-medium text-foreground">Ask AI to update this email</span>
+                                </div>
+                                <div className="p-2.5 space-y-2">
+                                  <Textarea
+                                    placeholder='e.g., "Make it shorter", "Add urgency", "Change the CTA to book a call"...'
+                                    value={aiEditPrompts[idx] || ""}
+                                    onChange={e => setAiEditPrompts(prev => ({ ...prev, [idx]: e.target.value }))}
+                                    className="min-h-[50px] resize-none text-xs"
+                                    disabled={isAiUpdating}
+                                    onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleAIEditEmail(idx); }}
+                                  />
+                                  <div className="flex justify-end">
+                                    <Button
+                                      size="sm"
+                                      className="h-7 text-[10px] gradient-brand text-primary-foreground"
+                                      onClick={() => handleAIEditEmail(idx)}
+                                      disabled={!aiEditPrompts[idx]?.trim() || isAiUpdating}
+                                    >
+                                      {isAiUpdating ? (
+                                        <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Updating…</>
+                                      ) : (
+                                        <><Wand2 className="h-3 w-3 mr-1" />Update with AI</>
+                                      )}
+                                    </Button>
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           )}

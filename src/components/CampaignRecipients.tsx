@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Upload, Users, Plus, Trash2, Search, UserPlus, FileSpreadsheet, Check, AlertTriangle } from "lucide-react";
+import { Upload, Users, Plus, Trash2, Search, UserPlus, FileSpreadsheet, Check, AlertTriangle, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,9 +26,17 @@ interface CampaignRecipientsProps {
   campaignId?: string;
 }
 
+const CONTACT_STATUS_OPTIONS = [
+  { value: "all", label: "All Contacts" },
+  { value: "active", label: "Active Leads" },
+  { value: "inactive", label: "Cold" },
+  { value: "archived", label: "Closed" },
+];
+
 export function CampaignRecipients({ recipients, onChange, campaignId }: CampaignRecipientsProps) {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [manualEmail, setManualEmail] = useState("");
   const [manualName, setManualName] = useState("");
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<string>>(
@@ -41,7 +49,7 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
     queryFn: async () => {
       const { data, error } = await supabase
         .from("patients")
-        .select("id, first_name, last_name, email")
+        .select("id, first_name, last_name, email, status")
         .not("email", "is", null)
         .order("first_name");
       if (error) throw error;
@@ -90,6 +98,7 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
   };
 
   const filteredCustomers = customers.filter(c => {
+    if (statusFilter !== "all" && c.status !== statusFilter) return false;
     const q = search.toLowerCase();
     return (
       `${c.first_name} ${c.last_name}`.toLowerCase().includes(q) ||
@@ -236,10 +245,32 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
         </TabsList>
 
         <TabsContent value="customers" className="space-y-2 mt-2">
+          {/* Status filter */}
+          <div className="flex items-center gap-1 flex-wrap">
+            <Filter className="h-3 w-3 text-muted-foreground shrink-0" />
+            {CONTACT_STATUS_OPTIONS.map(opt => {
+              const count = opt.value === "all"
+                ? customers.length
+                : customers.filter(c => c.status === opt.value).length;
+              return (
+                <button
+                  key={opt.value}
+                  onClick={() => setStatusFilter(opt.value)}
+                  className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                    statusFilter === opt.value
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-muted/50 text-muted-foreground hover:bg-accent hover:text-accent-foreground border-border"
+                  }`}
+                >
+                  {opt.label} ({count})
+                </button>
+              );
+            })}
+          </div>
           <div className="flex gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input placeholder="Search customers..." className="pl-7 h-8 text-xs" value={search} onChange={e => setSearch(e.target.value)} />
+              <Input placeholder="Search contacts..." className="pl-7 h-8 text-xs" value={search} onChange={e => setSearch(e.target.value)} />
             </div>
             <Button variant="outline" size="sm" className="text-xs h-8" onClick={selectAll}>
               <Check className="h-3 w-3 mr-1" />Select All
