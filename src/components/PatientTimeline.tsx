@@ -1,12 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { CATEGORY_CONFIG, STATUS_CONFIG, type InquiryCategory, type InquiryStatus } from "@/lib/types";
+import { CATEGORY_CONFIG, type InquiryCategory } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  MessageSquare, FileText, Mail, Clock, CheckCircle2, AlertTriangle,
-} from "lucide-react";
+import { MessageSquare, FileText, Mail, Clock } from "lucide-react";
 
 type TimelineEvent = {
   id: string;
@@ -20,31 +18,54 @@ type TimelineEvent = {
 
 function eventIcon(type: TimelineEvent["type"]) {
   switch (type) {
-    case "inquiry": return <MessageSquare className="h-4 w-4" />;
-    case "intake": return <FileText className="h-4 w-4" />;
+    case "inquiry":  return <MessageSquare className="h-4 w-4" />;
+    case "intake":   return <FileText className="h-4 w-4" />;
     case "campaign": return <Mail className="h-4 w-4" />;
   }
 }
 
 function eventColor(type: TimelineEvent["type"]) {
   switch (type) {
-    case "inquiry": return "bg-primary text-primary-foreground";
-    case "intake": return "bg-accent text-accent-foreground";
+    case "inquiry":  return "bg-primary text-primary-foreground";
+    case "intake":   return "bg-accent text-accent-foreground";
     case "campaign": return "bg-secondary text-secondary-foreground";
   }
 }
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", {
-    month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
+    month: "short", day: "numeric", year: "numeric",
+    hour: "numeric", minute: "2-digit",
   });
 }
+
+// Typed shape for the intake_submissions join result
+type IntakeSubmissionRow = {
+  id: string;
+  patient_name: string;
+  completion_status: string;
+  review_status: string;
+  created_at: string;
+  submitted_at: string | null;
+  form_id: string;
+  intake_forms: { name: string } | null;
+};
+
+// Typed shape for the campaign_recipients join result
+type CampaignRecipientRow = {
+  id: string;
+  status: string;
+  sent_at: string | null;
+  opened_at: string | null;
+  created_at: string;
+  campaigns: { name: string } | null;
+};
 
 export function PatientTimeline({ patientId }: { patientId: string }) {
   const { data: events = [], isLoading } = useQuery({
     queryKey: ["patient-timeline", patientId],
     queryFn: async () => {
-      const [inquiriesRes, submissionsRes] = await Promise.all([
+      const [inquiriesRes, submissionsRes, recipientsRes] = await Promise.all([
         supabase
           .from("inquiries")
           .select("id, raw_content, category, status, source, created_at")
@@ -55,10 +76,16 @@ export function PatientTimeline({ patientId }: { patientId: string }) {
           .select("id, patient_name, completion_status, review_status, created_at, submitted_at, form_id, intake_forms(name)")
           .eq("patient_id", patientId)
           .order("created_at", { ascending: false }),
+        supabase
+          .from("campaign_recipients")
+          .select("id, status, sent_at, opened_at, created_at, campaigns(name)")
+          .eq("patient_id", patientId)
+          .order("created_at", { ascending: false }),
       ]);
 
       if (inquiriesRes.error) throw inquiriesRes.error;
       if (submissionsRes.error) throw submissionsRes.error;
+      if (recipientsRes.error) throw recipientsRes.error;
 
       const timeline: TimelineEvent[] = [];
 
@@ -77,8 +104,8 @@ export function PatientTimeline({ patientId }: { patientId: string }) {
         });
       }
 
-      for (const sub of submissionsRes.data) {
-        const formName = (sub as any).intake_forms?.name ?? "Form";
+      for (const sub of submissionsRes.data as IntakeSubmissionRow[]) {
+        const formName = sub.intake_forms?.name ?? "Form";
         timeline.push({
           id: sub.id,
           type: "intake",
@@ -86,6 +113,24 @@ export function PatientTimeline({ patientId }: { patientId: string }) {
           description: `Status: ${sub.completion_status} · Review: ${sub.review_status}`,
           date: sub.submitted_at ?? sub.created_at,
           status: sub.completion_status,
+        });
+      }
+
+      for (const rec of recipientsRes.data as CampaignRecipientRow[]) {
+        const campaignName = rec.campaigns?.name ?? "Campaign";
+        const eventDate = rec.opened_at ?? rec.sent_at ?? rec.created_at;
+        const description = rec.opened_at
+          ? "Email opened"
+          : rec.sent_at
+            ? "Email delivered"
+            : "Added to campaign";
+        timeline.push({
+          id: rec.id,
+          type: "campaign",
+          title: `Campaign — ${campaignName}`,
+          description,
+          date: eventDate,
+          status: rec.status,
         });
       }
 
@@ -114,24 +159,20 @@ export function PatientTimeline({ patientId }: { patientId: string }) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
         <Clock className="h-8 w-8 mb-2 opacity-40" />
-        <p className="text-sm">No activity yet for this patient</p>
+        <p className="text-sm">No activity yet for this contact</p>
       </div>
     );
   }
 
   return (
     <div className="relative pl-6">
-      {/* Vertical line */}
       <div className="absolute left-[15px] top-2 bottom-2 w-px bg-border" />
-
       <div className="space-y-6">
         {events.map((event) => (
           <div key={event.id} className="relative flex gap-4">
-            {/* Dot */}
             <div className={`absolute -left-6 mt-1 flex h-7 w-7 items-center justify-center rounded-full ${eventColor(event.type)} shrink-0 z-10`}>
               {eventIcon(event.type)}
             </div>
-
             <Card className="flex-1 ml-4">
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-2">

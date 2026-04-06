@@ -1,11 +1,12 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { QK } from "@/lib/queryKeys";
 import { toast } from "@/hooks/use-toast";
 import {
   Users, Plus, Search, MoreHorizontal, Mail, Phone, Building2,
   Eye, Pencil, Trash2, ChevronLeft, ArrowUpDown, Tag, StickyNote,
-  MapPin, DollarSign, TrendingUp, Clock, Send, ExternalLink,
+  MapPin, DollarSign, TrendingUp, Clock, Send, X, Filter,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,13 +38,14 @@ type Patient = {
   email: string | null;
   phone: string | null;
   date_of_birth: string | null;
-  gender: string | null;
+  company: string | null;
+  deal_value: number | null;
+  lead_source: string | null;
+  pipeline_stage: string;
   address: string | null;
   city: string | null;
   state: string | null;
   zip_code: string | null;
-  insurance_provider: string | null;
-  insurance_id: string | null;
   status: string;
   tags: string[] | null;
   notes: string | null;
@@ -105,19 +107,48 @@ function LeadSourceBadge({ source }: { source: string | null }) {
   );
 }
 
+const PIPELINE_STAGE_LABELS: Record<string, string> = {
+  new_lead: "New Lead", contacted: "Contacted", qualified: "Qualified",
+  proposal: "Proposal", negotiation: "Negotiation", won: "Won", lost: "Lost",
+};
+
+const SESSION_KEY = "contacts_filters";
+
+function loadFilters() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
 export default function Patients() {
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [sortBy, setSortBy] = useState<"newest" | "name" | "company">("newest");
+  const saved = loadFilters();
+  const [search, setSearch] = useState<string>(saved?.search ?? "");
+  const [statusFilter, setStatusFilter] = useState<string>(saved?.statusFilter ?? "all");
+  const [stageFilter, setStageFilter] = useState<string>(saved?.stageFilter ?? "all");
+  const [sourceFilter, setSourceFilter] = useState<string>(saved?.sourceFilter ?? "all");
+  const [sortBy, setSortBy] = useState<"newest" | "name" | "company" | "deal_value">(saved?.sortBy ?? "newest");
+  const [showFilters, setShowFilters] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Patient | null>(null);
   const [viewing, setViewing] = useState<Patient | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Patient | null>(null);
   const [detailTab, setDetailTab] = useState("overview");
 
+  // Persist filters to sessionStorage
+  useEffect(() => {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ search, statusFilter, stageFilter, sourceFilter, sortBy }));
+  }, [search, statusFilter, stageFilter, sourceFilter, sortBy]);
+
+  const hasActiveFilters = search || statusFilter !== "all" || stageFilter !== "all" || sourceFilter !== "all";
+
+  const clearFilters = () => {
+    setSearch(""); setStatusFilter("all"); setStageFilter("all"); setSourceFilter("all"); setSortBy("newest");
+  };
+
   const { data: patients = [], isLoading } = useQuery({
-    queryKey: ["patients"],
+    queryKey: QK.patients,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("patients")
@@ -145,22 +176,32 @@ export default function Patients() {
 
   const parseTags = (t: string) => t ? t.split(",").map(s => s.trim()).filter(Boolean) : [];
 
+  const patientPayload = (form: PatientFormData) => ({
+    first_name: form.first_name,
+    last_name: form.last_name,
+    email: form.email || null,
+    phone: form.phone || null,
+    date_of_birth: form.date_of_birth || null,
+    company: form.company || null,
+    deal_value: form.deal_value ? parseFloat(form.deal_value) : null,
+    lead_source: form.lead_source || null,
+    pipeline_stage: form.pipeline_stage || "new_lead",
+    address: form.address || null,
+    city: form.city || null,
+    state: form.state || null,
+    zip_code: form.zip_code || null,
+    status: form.status,
+    tags: parseTags(form.tags),
+    notes: form.notes || null,
+  });
+
   const addMutation = useMutation({
     mutationFn: async (form: PatientFormData) => {
-      const { error } = await supabase.from("patients").insert({
-        first_name: form.first_name, last_name: form.last_name,
-        email: form.email || null, phone: form.phone || null,
-        date_of_birth: form.date_of_birth || null, gender: form.gender || null,
-        address: form.address || null, city: form.city || null,
-        state: form.state || null, zip_code: form.zip_code || null,
-        insurance_provider: form.insurance_provider || null,
-        insurance_id: form.insurance_id || null,
-        status: form.status, tags: parseTags(form.tags), notes: form.notes || null,
-      });
+      const { error } = await supabase.from("patients").insert(patientPayload(form));
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["patients"] });
+      queryClient.invalidateQueries({ queryKey: QK.patients });
       setFormOpen(false);
       toast({ title: "Contact added successfully" });
     },
@@ -169,21 +210,14 @@ export default function Patients() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, form }: { id: string; form: PatientFormData }) => {
-      const { data, error } = await supabase.from("patients").update({
-        first_name: form.first_name, last_name: form.last_name,
-        email: form.email || null, phone: form.phone || null,
-        date_of_birth: form.date_of_birth || null, gender: form.gender || null,
-        address: form.address || null, city: form.city || null,
-        state: form.state || null, zip_code: form.zip_code || null,
-        insurance_provider: form.insurance_provider || null,
-        insurance_id: form.insurance_id || null,
-        status: form.status, tags: parseTags(form.tags), notes: form.notes || null,
-      }).eq("id", id).select().single();
+      const { data, error } = await supabase.from("patients")
+        .update(patientPayload(form))
+        .eq("id", id).select().single();
       if (error) throw error;
       return data as Patient;
     },
     onSuccess: (updatedPatient) => {
-      queryClient.invalidateQueries({ queryKey: ["patients"] });
+      queryClient.invalidateQueries({ queryKey: QK.patients });
       if (viewing && viewing.id === updatedPatient.id) setViewing(updatedPatient);
       setEditing(null);
       setFormOpen(false);
@@ -198,7 +232,7 @@ export default function Patients() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["patients"] });
+      queryClient.invalidateQueries({ queryKey: QK.patients });
       setDeleteTarget(null);
       if (viewing?.id === deleteTarget?.id) setViewing(null);
       toast({ title: "Contact deleted" });
@@ -215,18 +249,21 @@ export default function Patients() {
   const filtered = useMemo(() => {
     let result = patients;
     if (statusFilter !== "all") result = result.filter(p => p.status === statusFilter);
+    if (stageFilter !== "all") result = result.filter(p => p.pipeline_stage === stageFilter);
+    if (sourceFilter !== "all") result = result.filter(p => p.lead_source === sourceFilter);
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(p =>
         p.first_name.toLowerCase().includes(q) || p.last_name.toLowerCase().includes(q) ||
         (p.email?.toLowerCase().includes(q) ?? false) || (p.phone?.includes(q) ?? false) ||
-        (p.insurance_provider?.toLowerCase().includes(q) ?? false)
+        (p.company?.toLowerCase().includes(q) ?? false)
       );
     }
     if (sortBy === "name") result = [...result].sort((a, b) => a.first_name.localeCompare(b.first_name));
-    else if (sortBy === "company") result = [...result].sort((a, b) => (a.insurance_provider || "").localeCompare(b.insurance_provider || ""));
+    else if (sortBy === "company") result = [...result].sort((a, b) => (a.company || "").localeCompare(b.company || ""));
+    else if (sortBy === "deal_value") result = [...result].sort((a, b) => (b.deal_value ?? 0) - (a.deal_value ?? 0));
     return result;
-  }, [patients, statusFilter, search, sortBy]);
+  }, [patients, statusFilter, stageFilter, sourceFilter, search, sortBy]);
 
   // ─── DETAIL VIEW ───
   if (viewing) {
@@ -253,10 +290,10 @@ export default function Patients() {
               </h1>
               <div className="flex items-center gap-2">
                 <StatusPill status={p.status} />
-                <LeadSourceBadge source={p.gender} />
-                {p.insurance_provider && (
+                <LeadSourceBadge source={p.lead_source} />
+                {p.company && (
                   <span className="text-sm text-muted-foreground flex items-center gap-1">
-                    <Building2 className="h-3.5 w-3.5" /> {p.insurance_provider}
+                    <Building2 className="h-3.5 w-3.5" /> {p.company}
                   </span>
                 )}
               </div>
@@ -290,7 +327,9 @@ export default function Patients() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Card className="shadow-card">
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-heading font-bold text-foreground">{p.insurance_id || "—"}</p>
+              <p className="text-2xl font-heading font-bold text-foreground">
+                {p.deal_value != null ? `$${p.deal_value.toLocaleString()}` : "—"}
+              </p>
               <p className="text-xs text-muted-foreground mt-0.5">Deal Value</p>
             </CardContent>
           </Card>
@@ -345,7 +384,7 @@ export default function Patients() {
                   <Separator />
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Lead Source</span>
-                    <LeadSourceBadge source={p.gender} />
+                    <LeadSourceBadge source={p.lead_source} />
                   </div>
                   <Separator />
                   <div className="flex justify-between">
@@ -375,12 +414,19 @@ export default function Patients() {
                 <CardContent className="space-y-3 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Company</span>
-                    <span className="font-medium">{p.insurance_provider || "—"}</span>
+                    <span className="font-medium">{p.company || "—"}</span>
                   </div>
                   <Separator />
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Deal Value</span>
-                    <span className="font-medium font-heading text-foreground">{p.insurance_id || "—"}</span>
+                    <span className="font-medium font-heading text-foreground">
+                      {p.deal_value != null ? `$${p.deal_value.toLocaleString()}` : "—"}
+                    </span>
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Pipeline Stage</span>
+                    <span className="font-medium capitalize">{(p.pipeline_stage || "new_lead").replace("_", " ")}</span>
                   </div>
                   <Separator />
                   <div className="flex justify-between">
@@ -515,11 +561,13 @@ export default function Patients() {
               defaultValues={editing ? {
                 first_name: editing.first_name, last_name: editing.last_name,
                 email: editing.email || "", phone: editing.phone || "",
-                date_of_birth: editing.date_of_birth || "", gender: editing.gender || "",
+                date_of_birth: editing.date_of_birth || "",
+                company: editing.company || "",
+                deal_value: editing.deal_value != null ? String(editing.deal_value) : "",
+                lead_source: editing.lead_source || "",
+                pipeline_stage: editing.pipeline_stage || "new_lead",
                 address: editing.address || "", city: editing.city || "",
                 state: editing.state || "", zip_code: editing.zip_code || "",
-                insurance_provider: editing.insurance_provider || "",
-                insurance_id: editing.insurance_id || "",
                 status: editing.status, tags: (editing.tags || []).join(", "),
                 notes: editing.notes || "",
               } : undefined}
@@ -550,52 +598,129 @@ export default function Patients() {
       </div>
 
       {/* Filters bar */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex items-center bg-card border rounded-lg p-0.5 shadow-card">
-          {[
-            { key: "all", label: "All" },
-            { key: "active", label: "Active" },
-            { key: "inactive", label: "Cold" },
-            { key: "archived", label: "Closed" },
-          ].map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setStatusFilter(f.key)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                statusFilter === f.key
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {f.label}
-              <span className="ml-1.5 opacity-70">{statusCounts[f.key] || 0}</span>
-            </button>
-          ))}
-        </div>
+      <div className="space-y-2">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Status tabs */}
+          <div className="flex items-center bg-card border rounded-lg p-0.5 shadow-card">
+            {[
+              { key: "all", label: "All" },
+              { key: "active", label: "Active" },
+              { key: "inactive", label: "Cold" },
+              { key: "archived", label: "Closed" },
+            ].map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setStatusFilter(f.key)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  statusFilter === f.key
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {f.label}
+                <span className="ml-1.5 opacity-70">{statusCounts[f.key] || 0}</span>
+              </button>
+            ))}
+          </div>
 
-        <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search by name, email, company..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 h-9"
-          />
-        </div>
+          {/* Search */}
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by name, email, company..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 h-9"
+            />
+          </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1.5 h-9">
-              <ArrowUpDown className="h-3.5 w-3.5" />
-              {sortBy === "newest" ? "Newest" : sortBy === "name" ? "Name" : "Company"}
+          {/* Sort */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5 h-9">
+                <ArrowUpDown className="h-3.5 w-3.5" />
+                {sortBy === "newest" ? "Newest" : sortBy === "name" ? "Name" : sortBy === "company" ? "Company" : "Deal Value"}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setSortBy("newest")}>Newest First</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSortBy("name")}>By Name</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSortBy("company")}>By Company</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSortBy("deal_value")}>By Deal Value</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* More filters toggle */}
+          <Button
+            variant={showFilters ? "secondary" : "outline"}
+            size="sm"
+            className="gap-1.5 h-9"
+            onClick={() => setShowFilters(!showFilters)}
+          >
+            <Filter className="h-3.5 w-3.5" />
+            Filters
+            {(stageFilter !== "all" || sourceFilter !== "all") && (
+              <span className="ml-1 h-4 w-4 rounded-full bg-primary text-[9px] text-primary-foreground flex items-center justify-center font-bold">
+                {[stageFilter !== "all", sourceFilter !== "all"].filter(Boolean).length}
+              </span>
+            )}
+          </Button>
+
+          {hasActiveFilters && (
+            <Button variant="ghost" size="sm" className="gap-1.5 h-9 text-muted-foreground" onClick={clearFilters}>
+              <X className="h-3.5 w-3.5" /> Clear
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => setSortBy("newest")}>Newest First</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setSortBy("name")}>By Name</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setSortBy("company")}>By Company</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          )}
+        </div>
+
+        {/* Expanded filter row */}
+        {showFilters && (
+          <div className="flex items-center gap-3 flex-wrap pl-1">
+            {/* Pipeline stage filter */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs">
+                  <TrendingUp className="h-3 w-3" />
+                  {stageFilter === "all" ? "All Stages" : PIPELINE_STAGE_LABELS[stageFilter] ?? stageFilter}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={() => setStageFilter("all")}>All Stages</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {Object.entries(PIPELINE_STAGE_LABELS).map(([key, label]) => (
+                  <DropdownMenuItem key={key} onClick={() => setStageFilter(key)}>
+                    {label}
+                    <span className="ml-auto text-muted-foreground text-xs">
+                      {patients.filter(p => p.pipeline_stage === key).length}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Lead source filter */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs">
+                  <Tag className="h-3 w-3" />
+                  {sourceFilter === "all" ? "All Sources" : LEAD_SOURCE_MAP[sourceFilter]?.label ?? sourceFilter}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={() => setSourceFilter("all")}>All Sources</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {Object.entries(LEAD_SOURCE_MAP).map(([key, cfg]) => (
+                  <DropdownMenuItem key={key} onClick={() => setSourceFilter(key)}>
+                    {cfg.label}
+                    <span className="ml-auto text-muted-foreground text-xs">
+                      {patients.filter(p => p.lead_source === key).length}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
       </div>
 
       {/* Table */}
@@ -651,9 +776,11 @@ export default function Patients() {
                       <div className="text-muted-foreground">{p.email || "—"}</div>
                       {p.phone && <div className="text-[11px] text-muted-foreground/70">{p.phone}</div>}
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{p.insurance_provider || "—"}</TableCell>
-                    <TableCell><LeadSourceBadge source={p.gender} /></TableCell>
-                    <TableCell className="text-sm font-medium font-heading">{p.insurance_id || "—"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{p.company || "—"}</TableCell>
+                    <TableCell><LeadSourceBadge source={p.lead_source} /></TableCell>
+                    <TableCell className="text-sm font-medium font-heading">
+                      {p.deal_value != null ? `$${p.deal_value.toLocaleString()}` : "—"}
+                    </TableCell>
                     <TableCell><StatusPill status={p.status} /></TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <DropdownMenu>

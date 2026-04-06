@@ -12,14 +12,18 @@ import { toast } from "sonner";
 import type { InquiryRow } from "@/components/InquiryList";
 import type { InquiryCategory, InquiryStatus } from "@/lib/types";
 
-const sourceIcons: Record<string, any> = { email: Mail, portal: Globe, phone: Phone, manual: PenLine };
-const sourceLabels: Record<string, string> = { email: "Email", portal: "Patient Portal", phone: "Phone Call", manual: "Manual Entry" };
+const sourceIcons: Record<string, React.ElementType> = {
+  email: Mail, portal: Globe, phone: Phone, manual: PenLine,
+};
+const sourceLabels: Record<string, string> = {
+  email: "Email", portal: "Patient Portal", phone: "Phone Call", manual: "Manual Entry",
+};
 
 const QUICK_REPLIES = [
   "Thanks for reaching out! We'll get back to you within 24 hours.",
   "Your appointment has been confirmed. See you soon!",
   "Lab results typically process within 3-5 business days.",
-  "Please call our office at (555) 123-4567 for immediate assistance.",
+  "Please call our office for immediate assistance.",
 ];
 
 interface StaffRow {
@@ -37,9 +41,32 @@ interface Props {
 export function InquiryDetail({ inquiry, onUpdate }: Props) {
   const [reply, setReply] = useState("");
   const [staff, setStaff] = useState<StaffRow[]>([]);
+  const [escalationStaffId, setEscalationStaffId] = useState<string | null>(null);
   const [assignedStaffName, setAssignedStaffName] = useState<string | null>(null);
   const [classifying, setClassifying] = useState(false);
-  const SourceIcon = sourceIcons[inquiry.source] || Mail;
+  const SourceIcon = sourceIcons[inquiry.source] ?? Mail;
+
+  // Load staff list and escalation target from practice_settings
+  useEffect(() => {
+    Promise.all([
+      supabase.from("staff").select("id, name, role, active").eq("active", true),
+      supabase.from("practice_settings").select("escalation_staff_id").limit(1).single(),
+    ]).then(([staffRes, settingsRes]) => {
+      if (staffRes.data) setStaff(staffRes.data);
+      if (settingsRes.data?.escalation_staff_id) {
+        setEscalationStaffId(settingsRes.data.escalation_staff_id);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (inquiry.assigned_to && staff.length) {
+      const s = staff.find((s) => s.id === inquiry.assigned_to);
+      setAssignedStaffName(s?.name ?? null);
+    } else {
+      setAssignedStaffName(null);
+    }
+  }, [inquiry.assigned_to, staff]);
 
   const handleClassify = async () => {
     setClassifying(true);
@@ -50,32 +77,22 @@ export function InquiryDetail({ inquiry, onUpdate }: Props) {
       if (error) throw error;
       if (data?.updates) {
         onUpdate(inquiry.id, data.updates);
-        toast.success(data.classification?.is_faq_match ? "AI matched to FAQ and auto-responded" : "AI classified successfully");
+        toast.success(data.classification?.is_faq_match
+          ? "AI matched to FAQ and auto-responded"
+          : "AI classified successfully");
       }
-    } catch (e: any) {
-      toast.error(e.message || "Classification failed");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Classification failed");
     } finally {
       setClassifying(false);
     }
   };
 
-  useEffect(() => {
-    supabase.from("staff").select("id, name, role, active").eq("active", true).then(({ data }) => {
-      if (data) setStaff(data);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (inquiry.assigned_to && staff.length) {
-      const s = staff.find((s) => s.id === inquiry.assigned_to);
-      setAssignedStaffName(s?.name || null);
-    } else {
-      setAssignedStaffName(null);
-    }
-  }, [inquiry.assigned_to, staff]);
-
   const handleAssign = async (staffId: string) => {
-    const { error } = await supabase.from("inquiries").update({ assigned_to: staffId, status: "assigned" }).eq("id", inquiry.id);
+    const { error } = await supabase
+      .from("inquiries")
+      .update({ assigned_to: staffId, status: "assigned" })
+      .eq("id", inquiry.id);
     if (error) { toast.error(error.message); return; }
     onUpdate(inquiry.id, { assigned_to: staffId, status: "assigned" });
     const s = staff.find((s) => s.id === staffId);
@@ -83,7 +100,11 @@ export function InquiryDetail({ inquiry, onUpdate }: Props) {
   };
 
   const handleResolve = async () => {
-    const updates = { status: "resolved", resolved_at: new Date().toISOString(), response_text: reply || null };
+    const updates = {
+      status: "resolved" as const,
+      resolved_at: new Date().toISOString(),
+      response_text: reply || null,
+    };
     const { error } = await supabase.from("inquiries").update(updates).eq("id", inquiry.id);
     if (error) { toast.error(error.message); return; }
     onUpdate(inquiry.id, updates);
@@ -91,17 +112,22 @@ export function InquiryDetail({ inquiry, onUpdate }: Props) {
   };
 
   const handleEscalate = async () => {
-    const meganId = staff.find((s) => s.name === "Megan")?.id || null;
-    const updates = { status: "escalated", assigned_to: meganId };
+    const targetId = escalationStaffId ?? staff[0]?.id ?? null;
+    const updates = { status: "escalated" as const, assigned_to: targetId };
     const { error } = await supabase.from("inquiries").update(updates).eq("id", inquiry.id);
     if (error) { toast.error(error.message); return; }
     onUpdate(inquiry.id, updates);
-    toast.warning("Escalated to Megan");
+    const target = staff.find((s) => s.id === targetId);
+    toast.warning(target ? `Escalated to ${target.name}` : "Escalated");
   };
 
   const handleSendReply = async () => {
     if (!reply.trim()) return;
-    const updates = { response_text: reply, status: "resolved", resolved_at: new Date().toISOString() };
+    const updates = {
+      response_text: reply,
+      status: "resolved" as const,
+      resolved_at: new Date().toISOString(),
+    };
     const { error } = await supabase.from("inquiries").update(updates).eq("id", inquiry.id);
     if (error) { toast.error(error.message); return; }
     onUpdate(inquiry.id, updates);
@@ -125,7 +151,7 @@ export function InquiryDetail({ inquiry, onUpdate }: Props) {
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <SourceIcon className="h-3.5 w-3.5" />
-            {sourceLabels[inquiry.source] || inquiry.source}
+            {sourceLabels[inquiry.source] ?? inquiry.source}
           </span>
           <span className="flex items-center gap-1">
             <Clock className="h-3.5 w-3.5" />
@@ -169,8 +195,8 @@ export function InquiryDetail({ inquiry, onUpdate }: Props) {
 
         {inquiry.status !== "resolved" && (
           <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <Select value={inquiry.assigned_to || ""} onValueChange={handleAssign}>
+            <div className="flex items-center gap-3 flex-wrap">
+              <Select value={inquiry.assigned_to ?? ""} onValueChange={handleAssign}>
                 <SelectTrigger className="w-[180px] h-9">
                   <User className="h-3.5 w-3.5 mr-1" />
                   <SelectValue placeholder="Assign to..." />
@@ -195,7 +221,9 @@ export function InquiryDetail({ inquiry, onUpdate }: Props) {
               )}
 
               <Button variant="secondary" size="sm" onClick={handleClassify} disabled={classifying} className="gap-1.5">
-                {classifying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                {classifying
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <Sparkles className="h-3.5 w-3.5" />}
                 AI Classify
               </Button>
             </div>
@@ -209,16 +237,25 @@ export function InquiryDetail({ inquiry, onUpdate }: Props) {
                     onClick={() => setReply(qr)}
                     className="text-xs rounded-full border px-3 py-1.5 hover:bg-accent transition-colors text-left"
                   >
-                    {qr.substring(0, 50)}...
+                    {qr.length > 50 ? qr.substring(0, 50) + "…" : qr}
                   </button>
                 ))}
               </div>
             </div>
 
             <div>
-              <Textarea placeholder="Write a reply..." value={reply} onChange={(e) => setReply(e.target.value)} className="min-h-[100px] bg-background" />
+              <Textarea
+                placeholder="Write a reply..."
+                value={reply}
+                onChange={(e) => setReply(e.target.value)}
+                className="min-h-[100px] bg-background"
+              />
               <div className="flex justify-end mt-2">
-                <Button onClick={handleSendReply} disabled={!reply.trim()} className="gap-1.5 gradient-brand text-primary-foreground">
+                <Button
+                  onClick={handleSendReply}
+                  disabled={!reply.trim()}
+                  className="gap-1.5 gradient-brand text-primary-foreground"
+                >
                   <Send className="h-3.5 w-3.5" />
                   Send Reply
                 </Button>

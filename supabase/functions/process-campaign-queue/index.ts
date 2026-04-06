@@ -247,12 +247,14 @@ serve(async (req) => {
           .update(recipientUpdate)
           .eq("id", recipient.id);
 
-        // Update campaign sent count
-        await supabase.from("campaigns")
-          .update({ sent_count: (campaign.sent_count ?? 0) + sentCount + 1 })
-          .eq("id", campaign.id);
-
         sentCount++;
+      }
+
+      // Update campaign sent_count once after processing the whole batch
+      if (sentCount > 0) {
+        await supabase.from("campaigns")
+          .update({ sent_count: (campaign.sent_count ?? 0) + sentCount })
+          .eq("id", campaign.id);
       }
 
       results.push({ campaign: campaign.name, sent: sentCount });

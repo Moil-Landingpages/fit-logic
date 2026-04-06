@@ -60,11 +60,14 @@ serve(async (req) => {
       { onConflict: "email" }
     );
 
-    // Mark recipient as skipped in all active campaigns
+    // Mark recipient as skipped only within this campaign
+    // (Global unsubscribe list prevents future sends; we don't retroactively
+    //  cancel other active campaigns the user may still want.)
     await supabase
       .from("campaign_recipients")
       .update({ status: "skipped", last_error: "Unsubscribed" })
       .eq("email", recipient.email)
+      .eq("campaign_id", log.campaign_id)
       .eq("status", "pending");
 
     return new Response(

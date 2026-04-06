@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { QK } from "@/lib/queryKeys";
 import { InquiryList, type InquiryRow } from "@/components/InquiryList";
 import { InquiryDetail } from "@/components/InquiryDetail";
-import { Inbox as InboxIcon, Bot, Users, AlertTriangle, CheckCircle } from "lucide-react";
+import { Inbox as InboxIcon, Bot, AlertTriangle, CheckCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
 const Inbox = () => {
@@ -11,7 +12,7 @@ const Inbox = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { data: inquiries = [], isLoading } = useQuery({
-    queryKey: ["inquiries"],
+    queryKey: QK.inquiries,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("inquiries")
@@ -25,9 +26,12 @@ const Inbox = () => {
   const selected = inquiries.find((i) => i.id === selectedId) || null;
 
   const handleUpdate = (id: string, updates: Partial<InquiryRow>) => {
-    queryClient.setQueryData(["inquiries"], (old: InquiryRow[] | undefined) =>
-      (old || []).map((i) => (i.id === id ? { ...i, ...updates } : i))
+    // Optimistic update for instant UI response
+    queryClient.setQueryData(QK.inquiries, (old: InquiryRow[] | undefined) =>
+      (old ?? []).map((i) => (i.id === id ? { ...i, ...updates } : i))
     );
+    // Background refetch so all consumers get the server-authoritative state
+    queryClient.invalidateQueries({ queryKey: QK.inquiries });
   };
 
   const pending = inquiries.filter((i) => i.status === "pending").length;

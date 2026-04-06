@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { QK } from "@/lib/queryKeys";
 import {
   Mail, Plus, Send, Clock, FileText, Eye, Pencil, Users, BarChart3,
   Search, Trash2, Copy, MousePointerClick, Sparkles, Layers
@@ -81,7 +82,7 @@ const Campaigns_Page = () => {
   const [showAIWizard, setShowAIWizard] = useState(false);
 
   const { data: campaigns = [] } = useQuery({
-    queryKey: ["campaigns"],
+    queryKey: QK.campaigns,
     queryFn: async () => {
       const { data, error } = await supabase.from("campaigns").select("*").order("created_at", { ascending: false });
       if (error) throw error;
@@ -90,7 +91,7 @@ const Campaigns_Page = () => {
   });
 
   const { data: templates = [] } = useQuery({
-    queryKey: ["email_templates"],
+    queryKey: QK.emailTemplates,
     queryFn: async () => {
       const { data, error } = await supabase.from("email_templates").select("*").order("created_at", { ascending: false });
       if (error) throw error;
@@ -99,7 +100,7 @@ const Campaigns_Page = () => {
   });
 
   const { data: segments = [] } = useQuery({
-    queryKey: ["segments"],
+    queryKey: QK.segments,
     queryFn: async () => {
       const { data, error } = await supabase.from("segments").select("*").order("name");
       if (error) throw error;
@@ -107,9 +108,14 @@ const Campaigns_Page = () => {
     },
   });
 
-  const invalidateAll = () => {
-    queryClient.invalidateQueries({ queryKey: ["campaigns"] });
-    queryClient.invalidateQueries({ queryKey: ["email_templates"] });
+  const invalidateAll = (campaignId?: string) => {
+    queryClient.invalidateQueries({ queryKey: QK.campaigns });
+    queryClient.invalidateQueries({ queryKey: QK.emailTemplates });
+    queryClient.invalidateQueries({ queryKey: QK.segments });
+    if (campaignId) {
+      queryClient.invalidateQueries({ queryKey: QK.campaignRecipients(campaignId) });
+      queryClient.invalidateQueries({ queryKey: QK.campaignSequences(campaignId) });
+    }
   };
 
   const saveCampaignMut = useMutation({
@@ -267,10 +273,44 @@ const Campaigns_Page = () => {
   const avgClickRate = totalSent > 0 ? Math.round((totalClicked / totalSent) * 100) : 0;
 
   const handleDuplicate = async (campaign: CampaignRow) => {
-    const { error } = await supabase.from("campaigns").insert({
-      name: `${campaign.name} (Copy)`, status: "draft", template_id: campaign.template_id, segment_id: campaign.segment_id, campaign_type: campaign.campaign_type,
-    });
-    if (!error) { invalidateAll(); toast({ title: "Campaign duplicated" }); }
+    const { data: newCampaign, error } = await supabase.from("campaigns").insert({
+      name: `${campaign.name} (Copy)`,
+      status: "draft",
+      template_id: campaign.template_id,
+      segment_id: campaign.segment_id,
+      campaign_type: campaign.campaign_type,
+      auto_schedule: campaign.auto_schedule,
+      max_sends_per_day: campaign.max_sends_per_day,
+      business_hours_start: campaign.business_hours_start,
+      business_hours_end: campaign.business_hours_end,
+      business_days: campaign.business_days,
+    }).select().single();
+    if (error || !newCampaign) { toast({ title: "Duplicate failed", variant: "destructive" }); return; }
+
+    // Copy pending recipients (don't copy sent/opened — they're historical)
+    const { data: existingRecs } = await supabase
+      .from("campaign_recipients").select("email, name, patient_id, source")
+      .eq("campaign_id", campaign.id).eq("status", "pending");
+    if (existingRecs?.length) {
+      await supabase.from("campaign_recipients").insert(
+        existingRecs.map(r => ({ ...r, campaign_id: newCampaign.id }))
+      );
+    }
+
+    // Copy sequence steps
+    if (campaign.campaign_type === "sequence") {
+      const { data: existingSeqs } = await supabase
+        .from("campaign_sequences").select("step_number, delay_days, subject_override, body_html_override, template_id")
+        .eq("campaign_id", campaign.id).order("step_number");
+      if (existingSeqs?.length) {
+        await supabase.from("campaign_sequences").insert(
+          existingSeqs.map(s => ({ ...s, campaign_id: newCampaign.id }))
+        );
+      }
+    }
+
+    invalidateAll(newCampaign.id);
+    toast({ title: "Campaign duplicated" });
   };
 
   const handleAIAccept = async (result: any) => {
