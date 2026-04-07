@@ -112,16 +112,12 @@ export type Database = {
       }
       campaign_send_log: {
         Row: {
-          bounce_type: string | null
           campaign_id: string
           clicked_at: string | null
-          complaint_at: string | null
           created_at: string
           error_message: string | null
           id: string
           opened_at: string | null
-          provider: string | null
-          provider_message_id: string | null
           recipient_id: string
           sent_at: string | null
           status: string
@@ -129,16 +125,12 @@ export type Database = {
           tracking_id: string | null
         }
         Insert: {
-          bounce_type?: string | null
           campaign_id: string
           clicked_at?: string | null
-          complaint_at?: string | null
           created_at?: string
           error_message?: string | null
           id?: string
           opened_at?: string | null
-          provider?: string | null
-          provider_message_id?: string | null
           recipient_id: string
           sent_at?: string | null
           status?: string
@@ -146,16 +138,12 @@ export type Database = {
           tracking_id?: string | null
         }
         Update: {
-          bounce_type?: string | null
           campaign_id?: string
           clicked_at?: string | null
-          complaint_at?: string | null
           created_at?: string
           error_message?: string | null
           id?: string
           opened_at?: string | null
-          provider?: string | null
-          provider_message_id?: string | null
           recipient_id?: string
           sent_at?: string | null
           status?: string
@@ -333,38 +321,6 @@ export type Database = {
             columns: ["template_id"]
             isOneToOne: false
             referencedRelation: "email_templates"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      email_suppressions: {
-        Row: {
-          campaign_id: string | null
-          created_at: string
-          email: string
-          id: string
-          reason: string
-        }
-        Insert: {
-          campaign_id?: string | null
-          created_at?: string
-          email: string
-          id?: string
-          reason: string
-        }
-        Update: {
-          campaign_id?: string | null
-          created_at?: string
-          email?: string
-          id?: string
-          reason?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "email_suppressions_campaign_id_fkey"
-            columns: ["campaign_id"]
-            isOneToOne: false
-            referencedRelation: "campaigns"
             referencedColumns: ["id"]
           },
         ]
@@ -628,10 +584,8 @@ export type Database = {
         Row: {
           address: string | null
           city: string | null
-          company: string | null
           created_at: string
           date_of_birth: string | null
-          deal_value: number | null
           email: string | null
           first_name: string
           gender: string | null
@@ -639,10 +593,8 @@ export type Database = {
           insurance_id: string | null
           insurance_provider: string | null
           last_name: string
-          lead_source: string | null
           notes: string | null
           phone: string | null
-          pipeline_stage: string
           state: string | null
           status: string
           tags: string[] | null
@@ -652,10 +604,8 @@ export type Database = {
         Insert: {
           address?: string | null
           city?: string | null
-          company?: string | null
           created_at?: string
           date_of_birth?: string | null
-          deal_value?: number | null
           email?: string | null
           first_name: string
           gender?: string | null
@@ -663,10 +613,8 @@ export type Database = {
           insurance_id?: string | null
           insurance_provider?: string | null
           last_name: string
-          lead_source?: string | null
           notes?: string | null
           phone?: string | null
-          pipeline_stage?: string
           state?: string | null
           status?: string
           tags?: string[] | null
@@ -676,10 +624,8 @@ export type Database = {
         Update: {
           address?: string | null
           city?: string | null
-          company?: string | null
           created_at?: string
           date_of_birth?: string | null
-          deal_value?: number | null
           email?: string | null
           first_name?: string
           gender?: string | null
@@ -687,10 +633,8 @@ export type Database = {
           insurance_id?: string | null
           insurance_provider?: string | null
           last_name?: string
-          lead_source?: string | null
           notes?: string | null
           phone?: string | null
-          pipeline_stage?: string
           state?: string | null
           status?: string
           tags?: string[] | null
@@ -698,71 +642,6 @@ export type Database = {
           zip_code?: string | null
         }
         Relationships: []
-      }
-      practice_settings: {
-        Row: {
-          business_days: string[]
-          business_hours_end: number
-          business_hours_start: number
-          created_at: string
-          email_from_address: string | null
-          email_from_name: string | null
-          email_provider: string
-          email_provider_api_key: string | null
-          escalation_staff_id: string | null
-          google_calendar_token: Json | null
-          google_gmail_token: Json | null
-          id: string
-          max_sends_per_day: number
-          practice_name: string
-          timezone: string
-          updated_at: string
-        }
-        Insert: {
-          business_days?: string[]
-          business_hours_end?: number
-          business_hours_start?: number
-          created_at?: string
-          email_from_address?: string | null
-          email_from_name?: string | null
-          email_provider?: string
-          email_provider_api_key?: string | null
-          escalation_staff_id?: string | null
-          google_calendar_token?: Json | null
-          google_gmail_token?: Json | null
-          id?: string
-          max_sends_per_day?: number
-          practice_name?: string
-          timezone?: string
-          updated_at?: string
-        }
-        Update: {
-          business_days?: string[]
-          business_hours_end?: number
-          business_hours_start?: number
-          created_at?: string
-          email_from_address?: string | null
-          email_from_name?: string | null
-          email_provider?: string
-          email_provider_api_key?: string | null
-          escalation_staff_id?: string | null
-          google_calendar_token?: Json | null
-          google_gmail_token?: Json | null
-          id?: string
-          max_sends_per_day?: number
-          practice_name?: string
-          timezone?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "practice_settings_escalation_staff_id_fkey"
-            columns: ["escalation_staff_id"]
-            isOneToOne: false
-            referencedRelation: "staff"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       referrals: {
         Row: {
