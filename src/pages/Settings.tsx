@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import {
   Settings as SettingsIcon, Building2, Users, Plug, Mail,
   Save, Trash2, Plus, CheckCircle2, AlertCircle, ExternalLink,
-  Clock, Calendar,
+  Clock, Calendar, Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -384,7 +384,15 @@ function StaffTab({
 }
 
 // ─── Integrations Tab ──────────────────────────────────────────────────────────
-function IntegrationsTab({ settings, onSave }: { settings: PracticeSettings; onSave: (updates: Partial<PracticeSettings>) => void }) {
+function IntegrationsTab({
+  settings,
+  onSave,
+  oauthLoading = false,
+}: {
+  settings: PracticeSettings;
+  onSave: (updates: Partial<PracticeSettings>) => void;
+  oauthLoading?: boolean;
+}) {
   const [emailForm, setEmailForm] = useState({
     email_provider: settings.email_provider,
     email_provider_api_key: settings.email_provider_api_key ?? "",
@@ -415,6 +423,14 @@ function IntegrationsTab({ settings, onSave }: { settings: PracticeSettings; onS
 
   return (
     <div className="space-y-6">
+      {/* OAuth in-progress banner */}
+      {oauthLoading && (
+        <div className="flex items-center gap-3 p-3 rounded-lg border bg-primary/5 border-primary/20 text-sm text-primary">
+          <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+          Completing Google authorization — please wait…
+        </div>
+      )}
+
       {/* Google Integration */}
       <Card>
         <CardHeader>
@@ -621,17 +637,40 @@ function CampaignDefaultsTab({ settings, onSave }: { settings: PracticeSettings;
 const Settings = () => {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("practice");
+  const [oauthLoading, setOauthLoading] = useState(false);
 
-  // Handle Google OAuth callback code in URL
+  // Handle Google OAuth callback — exchange code for tokens via edge function
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
-    const tab = params.get("tab");
+    const tab  = params.get("tab");
+
     if (code && tab === "integrations") {
-      toast.info("Google authorization code received. Token exchange requires a backend endpoint (google-oauth-callback edge function).");
-      // Clean the URL
+      // Clean URL immediately so a refresh doesn't re-trigger
       window.history.replaceState({}, "", window.location.pathname + "?tab=integrations");
       setActiveTab("integrations");
+      setOauthLoading(true);
+
+      const redirectUri = `${window.location.origin}/settings?tab=integrations`;
+
+      supabase.functions
+        .invoke("google-oauth-callback", { body: { code, redirect_uri: redirectUri } })
+        .then(({ data, error }) => {
+          if (error) {
+            toast.error(`Google connection failed: ${error.message}`);
+          } else if (data?.success) {
+            const connected = data.connected as { calendar?: boolean; gmail?: boolean };
+            const services = [
+              connected.calendar && "Calendar",
+              connected.gmail    && "Gmail",
+            ].filter(Boolean).join(" & ");
+            toast.success(`Google ${services} connected successfully`);
+            queryClient.invalidateQueries({ queryKey: QK.settings });
+          } else {
+            toast.error(data?.error ?? "Google connection failed");
+          }
+        })
+        .finally(() => setOauthLoading(false));
     } else if (tab) {
       setActiveTab(tab);
     }
@@ -708,7 +747,7 @@ const Settings = () => {
           <StaffTab settings={settings} onUpdateSettings={updateSettings.mutate} />
         </TabsContent>
         <TabsContent value="integrations" className="mt-6">
-          <IntegrationsTab settings={settings} onSave={updateSettings.mutate} />
+          <IntegrationsTab settings={settings} onSave={updateSettings.mutate} oauthLoading={oauthLoading} />
         </TabsContent>
         <TabsContent value="campaigns" className="mt-6">
           <CampaignDefaultsTab settings={settings} onSave={updateSettings.mutate} />
