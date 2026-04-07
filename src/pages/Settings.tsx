@@ -676,13 +676,30 @@ const Settings = () => {
     }
   }, []);
 
-  const { data: settings, isLoading } = useQuery({
+  const { data: rawSettings, isLoading } = useQuery({
     queryKey: QK.settings,
     queryFn: async () => {
       // practice_settings table not yet created — return defaults
       return null as PracticeSettings | null;
     },
   });
+
+  const settings: PracticeSettings = rawSettings ?? {
+    id: "",
+    practice_name: "FitLogic Functional Medicine",
+    timezone: "America/New_York",
+    business_hours_start: 8,
+    business_hours_end: 18,
+    business_days: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+    max_sends_per_day: 50,
+    escalation_staff_id: null,
+    google_calendar_token: null,
+    google_gmail_token: null,
+    email_provider: "lovable",
+    email_provider_api_key: null,
+    email_from_address: null,
+    email_from_name: null,
+  };
 
   const updateSettings = useMutation({
     mutationFn: async (_updates: Partial<PracticeSettings>) => {
@@ -696,7 +713,7 @@ const Settings = () => {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to save settings"),
   });
 
-  if (isLoading || !settings) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-3.5rem)] text-muted-foreground">
         <div className="space-y-2 text-center">
