@@ -1,7 +1,8 @@
 import { useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Upload, Users, Plus, Trash2, Search, UserPlus, FileSpreadsheet, Check, AlertTriangle } from "lucide-react";
+import { QK } from "@/lib/queryKeys";
+import { Upload, Users, Plus, Trash2, Search, UserPlus, FileSpreadsheet, Check, AlertTriangle, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +11,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import type { SegmentRule } from "@/lib/campaign-data";
 
 export interface Recipient {
   email: string;
@@ -26,6 +29,54 @@ interface CampaignRecipientsProps {
   campaignId?: string;
 }
 
+// ─── Segment rule evaluator ───────────────────────────────────────────────────
+type PatientRow = Record<string, unknown>;
+
+function evaluateRule(patient: PatientRow, rule: SegmentRule): boolean {
+  const raw = patient[rule.field];
+  const val = String(raw ?? "").toLowerCase();
+  const ruleVal = rule.value.toLowerCase();
+
+  // Relative date helpers
+  const resolveDate = (v: string): Date | null => {
+    const m = v.match(/^(\d+)_(days|months|years?)_ago$/);
+    if (!m) return null;
+    const n = parseInt(m[1]);
+    const unit = m[2];
+    const d = new Date();
+    if (unit.startsWith("day")) d.setDate(d.getDate() - n);
+    else if (unit.startsWith("month")) d.setMonth(d.getMonth() - n);
+    else d.setFullYear(d.getFullYear() - n);
+    return d;
+  };
+
+  switch (rule.operator) {
+    case "is":       return val === ruleVal;
+    case "is_not":   return val !== ruleVal;
+    case "contains":
+      if (Array.isArray(raw)) return (raw as string[]).some(t => t.toLowerCase().includes(ruleVal));
+      return val.includes(ruleVal);
+    case "greater_than": return parseFloat(val) > parseFloat(ruleVal);
+    case "less_than":    return parseFloat(val) < parseFloat(ruleVal);
+    case "before": {
+      if (!raw) return false;
+      const d = resolveDate(ruleVal) ?? new Date(ruleVal);
+      return new Date(String(raw)) < d;
+    }
+    case "after": {
+      if (!raw) return false;
+      const d = resolveDate(ruleVal) ?? new Date(ruleVal);
+      return new Date(String(raw)) > d;
+    }
+    default: return true;
+  }
+}
+
+function matchesSegment(patient: PatientRow, rules: SegmentRule[]): boolean {
+  if (!rules?.length) return true;
+  return rules.every(r => evaluateRule(patient, r));
+}
+
 export function CampaignRecipients({ recipients, onChange, campaignId }: CampaignRecipientsProps) {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
@@ -34,6 +85,7 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<string>>(
     new Set(recipients.filter(r => r.patient_id).map(r => r.patient_id!))
   );
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string>("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const { data: customers = [] } = useQuery({
@@ -48,6 +100,51 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
       return data;
     },
   });
+
+  const { data: segments = [] } = useQuery({
+    queryKey: QK.segments,
+    queryFn: async () => {
+      const { data } = await supabase.from("segments").select("id, name, description, rules, estimated_count, color").order("name");
+      return data ?? [];
+    },
+  });
+
+  // All patients (for segment evaluation) — loaded lazily only when a segment is selected
+  const { data: allPatientsForSeg = [] } = useQuery({
+    queryKey: ["patients-for-segment", selectedSegmentId],
+    enabled: !!selectedSegmentId,
+    queryFn: async () => {
+      const { data } = await supabase.from("patients").select("*").not("email", "is", null);
+      return data ?? [];
+    },
+  });
+
+  const segmentMatches = (() => {
+    if (!selectedSegmentId) return [];
+    const seg = segments.find(s => s.id === selectedSegmentId);
+    if (!seg) return [];
+    const rules: SegmentRule[] = Array.isArray(seg.rules) ? seg.rules as SegmentRule[] : [];
+    return allPatientsForSeg.filter((p) => matchesSegment(p as PatientRow, rules));
+  })();
+
+  const addFromSegment = () => {
+    if (!segmentMatches.length) return;
+    const existingEmails = new Set(recipients.map(r => r.email.toLowerCase()));
+    const toAdd: Recipient[] = [];
+    let dupeCount = 0;
+    for (const p of segmentMatches) {
+      const email = p.email as string;
+      if (existingEmails.has(email.toLowerCase())) continue;
+      if (activeEmailSet.has(email.toLowerCase())) dupeCount++;
+      toAdd.push({ email, name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(), patient_id: p.id as string, source: "customer" });
+      existingEmails.add(email.toLowerCase());
+      setSelectedCustomerIds(prev => { const n = new Set(prev); n.add(p.id as string); return n; });
+    }
+    onChange([...recipients, ...toAdd]);
+    let msg = `Added ${toAdd.length} contact${toAdd.length !== 1 ? "s" : ""} from segment`;
+    if (dupeCount > 0) msg += ` (${dupeCount} overlap with active campaigns)`;
+    toast({ title: msg });
+  };
 
   // Fetch emails already in active campaigns/sequences (not draft, not completed)
   const { data: activeCampaignEmails = [] } = useQuery({
@@ -229,9 +326,10 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
       )}
 
       <Tabs defaultValue="customers" className="w-full">
-        <TabsList className="w-full grid grid-cols-3">
+        <TabsList className="w-full grid grid-cols-4">
           <TabsTrigger value="customers" className="text-xs"><Users className="h-3 w-3 mr-1" />Customers</TabsTrigger>
-          <TabsTrigger value="csv" className="text-xs"><FileSpreadsheet className="h-3 w-3 mr-1" />CSV Import</TabsTrigger>
+          <TabsTrigger value="segments" className="text-xs"><Layers className="h-3 w-3 mr-1" />Segments</TabsTrigger>
+          <TabsTrigger value="csv" className="text-xs"><FileSpreadsheet className="h-3 w-3 mr-1" />CSV</TabsTrigger>
           <TabsTrigger value="manual" className="text-xs"><UserPlus className="h-3 w-3 mr-1" />Manual</TabsTrigger>
         </TabsList>
 
@@ -260,6 +358,43 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
               );
             })}
           </ScrollArea>
+        </TabsContent>
+
+        <TabsContent value="segments" className="space-y-3 mt-2">
+          {segments.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-6">No segments defined yet. Create them in the Segments tab.</p>
+          ) : (
+            <>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Select a segment</Label>
+                <Select value={selectedSegmentId} onValueChange={setSelectedSegmentId}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Choose segment…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {segments.map(s => (
+                      <SelectItem key={s.id} value={s.id} className="text-xs">
+                        <span>{s.name}</span>
+                        {s.estimated_count > 0 && (
+                          <span className="ml-2 text-muted-foreground">~{s.estimated_count}</span>
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {selectedSegmentId && (
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">{segmentMatches.length}</span> matching contacts with email addresses
+                  </p>
+                  <Button size="sm" className="text-xs h-7 w-full" onClick={addFromSegment} disabled={segmentMatches.length === 0}>
+                    <Plus className="h-3 w-3 mr-1" /> Add {segmentMatches.length} contacts
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="csv" className="space-y-3 mt-2">

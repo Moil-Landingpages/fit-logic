@@ -428,7 +428,10 @@ const IntakeForms = () => {
                         <Label className="text-xs">{selectedForm.active ? "Active" : "Inactive"}</Label>
                       </div>
                       <Button size="sm" variant="outline" onClick={() => setPreviewForm(selectedForm)}><Eye className="h-3 w-3 mr-1" />Preview</Button>
-                      <Button size="sm" variant="outline" onClick={() => toast.info("Link copied!")}><ExternalLink className="h-3 w-3 mr-1" />Copy Link</Button>
+                      <Button size="sm" variant="outline" onClick={() => {
+                        const link = `${window.location.origin}/intake/${selectedForm.id}`;
+                        navigator.clipboard.writeText(link).then(() => toast.success("Link copied!")).catch(() => toast.error("Copy failed — check browser permissions"));
+                      }}><ExternalLink className="h-3 w-3 mr-1" />Copy Link</Button>
                     </div>
                   </div>
                   <div className="flex-1 min-h-0"><FormBuilder form={selectedForm} onUpdate={handleFormUpdate} /></div>

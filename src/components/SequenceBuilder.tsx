@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { Plus, Trash2, ArrowDown, Clock, Mail, Eye, EyeOff, Sparkles, Loader2, Info } from "lucide-react";
+import { useState, useRef } from "react";
+import DOMPurify from "dompurify";
+import { Plus, Trash2, ArrowDown, Clock, Mail, Eye, EyeOff, Sparkles, Loader2, Info, GripVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -63,6 +64,24 @@ export function SequenceBuilder({ steps, onChange }: SequenceBuilderProps) {
   const [expandedStep, setExpandedStep] = useState<string | null>(steps[0]?.id || null);
   const [previewStep, setPreviewStep] = useState<string | null>(null);
   const [improvingStep, setImprovingStep] = useState<string | null>(null);
+  const dragId = useRef<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  const handleDragStart = (id: string) => { dragId.current = id; };
+  const handleDragOver  = (e: React.DragEvent, id: string) => { e.preventDefault(); setDragOverId(id); };
+  const handleDragEnd   = () => { dragId.current = null; setDragOverId(null); };
+  const handleDrop      = (targetId: string) => {
+    if (!dragId.current || dragId.current === targetId) return;
+    const from = steps.findIndex((s) => s.id === dragId.current);
+    const to   = steps.findIndex((s) => s.id === targetId);
+    if (from === -1 || to === -1) return;
+    const reordered = [...steps];
+    const [moved] = reordered.splice(from, 1);
+    reordered.splice(to, 0, moved);
+    onChange(reordered.map((s, i) => ({ ...s, step_number: i + 1 })));
+    dragId.current = null;
+    setDragOverId(null);
+  };
 
   const addStep = () => {
     const nextNum = steps.length + 1;
@@ -234,12 +253,22 @@ Return an improved version maintaining the same general intent but with better c
                 </div>
               )}
 
-              <Card className={`border-l-4 transition-colors ${isExpanded ? "border-l-primary" : "border-l-primary/20"}`}>
+              <Card
+                draggable
+                onDragStart={() => handleDragStart(step.id)}
+                onDragOver={(e) => handleDragOver(e, step.id)}
+                onDrop={() => handleDrop(step.id)}
+                onDragEnd={handleDragEnd}
+                className={`border-l-4 transition-all cursor-grab active:cursor-grabbing ${
+                  isExpanded ? "border-l-primary" : "border-l-primary/20"
+                } ${dragOverId === step.id ? "ring-2 ring-primary/40 scale-[1.01]" : ""}`}
+              >
                 <CardContent className="p-0">
                   <button
                     className="w-full flex items-center gap-2 p-3 text-left hover:bg-muted/30 transition-colors"
                     onClick={() => { setExpandedStep(isExpanded ? null : step.id); setPreviewStep(null); }}
                   >
+                    <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 cursor-grab" />
                     <Badge variant="outline" className="text-[10px] font-mono shrink-0">Step {step.step_number}</Badge>
                     <span className={`text-sm flex-1 truncate ${step.subject ? "font-medium text-foreground" : "text-muted-foreground italic"}`}>
                       {step.subject || "Untitled email"}
@@ -288,7 +317,7 @@ Return an improved version maintaining the same general intent but with better c
                             <div>
                               <p className="text-[10px] text-muted-foreground mb-1.5">Live Preview</p>
                               <div className="rounded-md border bg-background p-4">
-                                <div className="prose prose-sm max-w-none text-foreground [&_a]:text-primary" dangerouslySetInnerHTML={{ __html: step.body_html }} />
+                                <div className="prose prose-sm max-w-none text-foreground [&_a]:text-primary" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(step.body_html) }} />
                               </div>
                             </div>
                           )}
