@@ -15,7 +15,7 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [mode, setMode] = useState<"signin" | "reset">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "reset">("signin");
   const [resetSent, setResetSent] = useState(false);
 
   if (loading) {
@@ -35,6 +35,18 @@ export default function Login() {
     setSubmitting(false);
     if (error) {
       toast({ title: "Sign in failed", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    const { error } = await supabase.auth.signUp({ email, password });
+    setSubmitting(false);
+    if (error) {
+      toast({ title: "Sign up failed", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Account created!", description: "You are now signed in." });
     }
   };
 
@@ -59,12 +71,12 @@ export default function Login() {
         <div className="flex flex-col items-center gap-3">
           <img src={fitlogicLogo} alt="FitLogic" className="h-12 w-auto" />
           <p className="text-sm text-muted-foreground text-center">
-            {mode === "signin" ? "Sign in to your workspace" : "Reset your password"}
+            {mode === "signin" ? "Sign in to your workspace" : mode === "signup" ? "Create your account" : "Reset your password"}
           </p>
         </div>
 
-        {mode === "signin" ? (
-          <form onSubmit={handleSignIn} className="space-y-4">
+        {(mode === "signin" || mode === "signup") ? (
+          <form onSubmit={mode === "signin" ? handleSignIn : handleSignUp} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -82,7 +94,7 @@ export default function Login() {
               <Input
                 id="password"
                 type="password"
-                autoComplete="current-password"
+                autoComplete={mode === "signin" ? "current-password" : "new-password"}
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -90,15 +102,26 @@ export default function Login() {
               />
             </div>
             <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? "Signing in…" : "Sign in"}
+              {submitting ? (mode === "signin" ? "Signing in…" : "Creating account…") : (mode === "signin" ? "Sign in" : "Create account")}
             </Button>
-            <button
-              type="button"
-              onClick={() => setMode("reset")}
-              className="w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Forgot your password?
-            </button>
+            <div className="flex flex-col gap-1">
+              {mode === "signin" && (
+                <button
+                  type="button"
+                  onClick={() => setMode("reset")}
+                  className="w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Forgot your password?
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+                className="w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {mode === "signin" ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
+              </button>
+            </div>
           </form>
         ) : (
           <form onSubmit={handleReset} className="space-y-4">
