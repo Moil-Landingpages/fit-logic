@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import type { TablesUpdate } from "@/integrations/supabase/types";
 import {
   ArrowLeft, Pencil, Clock, Pause, Play, Send, Eye, Users,
   ChevronDown, ChevronUp, Mail, Layers, UserPlus, Calendar,
@@ -112,7 +113,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
   });
 
   const updateStatusMut = useMutation({
-    mutationFn: async (upd: Record<string, any>) => {
+    mutationFn: async (upd: TablesUpdate<"campaigns">) => {
       const { error } = await supabase.from("campaigns").update(upd).eq("id", campaign.id);
       if (error) throw error;
     },
