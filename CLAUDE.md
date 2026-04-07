@@ -12,6 +12,9 @@ npm run lint         # ESLint check
 npm run test         # Run tests once (Vitest)
 npm run test:watch   # Watch mode tests
 npm run preview      # Preview production build locally
+
+# Run a single test file
+npx vitest run src/path/to/file.test.ts
 ```
 
 ## Architecture Overview
@@ -115,6 +118,33 @@ Email provider API key is stored in `practice_settings.email_provider_api_key` w
 - `src/pages/Analytics.tsx` (~460 lines) — pipeline funnel, email engagement, inquiry stats (3 tabs, all live data)
 - `src/components/CampaignRecipients.tsx` (~456 lines) — recipient picker: Customers tab, Segments tab (with client-side rule evaluator), CSV tab, Manual tab
 - `src/components/BulkImportDialog.tsx` (~408 lines) — papaparse CSV import with column mapping, chunked upsert, progress
+
+### Shared Types & Config Maps
+
+`src/lib/types.ts` — shared TypeScript types and display-config maps used across the UI:
+- `InquiryCategory`, `InquiryStatus`, `CampaignStatus`, `QuestionType`, etc.
+- `CATEGORY_CONFIG`, `STATUS_CONFIG`, `CAMPAIGN_STATUS_CONFIG`, etc. — map enum values to `{ label, color, bgColor }` for consistent badge rendering; import from here rather than re-defining locally.
+
+`src/lib/mock-data.ts` — static mock data used in tests and local development stubs.
+
+### Routes
+
+All routes are defined in `src/App.tsx`. Public: `/login`. Protected:
+
+| Path | Page |
+|---|---|
+| `/` | Pipeline kanban (Index) |
+| `/contacts` | Contact list (Patients) |
+| `/campaigns` | Campaign management |
+| `/inbox` | Inquiries inbox |
+| `/faqs` | FAQ manager |
+| `/forms` | Intake forms |
+| `/analytics` | Analytics dashboard |
+| `/referrals` | Referral tracking |
+| `/settings` | Practice settings |
+| `/retreat` | Retreat page |
+
+Legacy redirects: `/patients` → `/contacts`, `/intake` → `/forms`.
 
 ### Fonts & Theme
 
