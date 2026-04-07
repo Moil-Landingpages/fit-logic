@@ -679,8 +679,13 @@ const Settings = () => {
   const { data: rawSettings, isLoading } = useQuery({
     queryKey: QK.settings,
     queryFn: async () => {
-      // practice_settings table not yet created — return defaults
-      return null as PracticeSettings | null;
+      const { data, error } = await supabase
+        .from("practice_settings")
+        .select("*")
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as PracticeSettings | null;
     },
   });
 
@@ -695,16 +700,26 @@ const Settings = () => {
     escalation_staff_id: null,
     google_calendar_token: null,
     google_gmail_token: null,
-    email_provider: "lovable",
+    email_provider: "resend",
     email_provider_api_key: null,
     email_from_address: null,
     email_from_name: null,
   };
 
   const updateSettings = useMutation({
-    mutationFn: async (_updates: Partial<PracticeSettings>) => {
-      // practice_settings table not yet created — no-op
-      console.warn("practice_settings table not available yet");
+    mutationFn: async (updates: Partial<PracticeSettings>) => {
+      if (settings.id) {
+        const { error } = await supabase
+          .from("practice_settings")
+          .update(updates)
+          .eq("id", settings.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("practice_settings")
+          .insert({ ...updates });
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QK.settings });
