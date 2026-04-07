@@ -93,12 +93,16 @@ serve(async (req) => {
 
     // Fetch practice settings (email provider) and active FAQs in parallel
     const [{ data: settings }, { data: faqs }] = await Promise.all([
-      sb.from("practice_settings").select("*").limit(1).single(),
+      sb.from("practice_settings").select("email_provider, email_provider_api_key, email_api_key_secret_id, email_from_address, email_from_name, escalation_staff_id").limit(1).single(),
       sb.from("faqs").select("*").eq("active", true),
     ]);
 
     const emailProvider: string = settings?.email_provider ?? "resend";
-    const emailApiKey: string = settings?.email_provider_api_key ?? "";
+    let emailApiKey: string = settings?.email_provider_api_key ?? "";
+    if (settings?.email_api_key_secret_id) {
+      const { data: vaultKey } = await sb.rpc("get_email_api_key");
+      if (vaultKey) emailApiKey = vaultKey as string;
+    }
     const fromAddress: string = settings?.email_from_address ?? "";
     const fromName: string = settings?.email_from_name ?? "FitLogic";
     const fromHeader = fromName ? `${fromName} <${fromAddress}>` : fromAddress;

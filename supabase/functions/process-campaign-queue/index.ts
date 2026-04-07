@@ -117,12 +117,18 @@ serve(async (req) => {
     // ── Load practice settings (email provider, from address, timezone) ───
     const { data: settings } = await supabase
       .from("practice_settings")
-      .select("email_provider, email_provider_api_key, email_from_address, email_from_name, timezone, business_hours_start, business_hours_end, business_days, max_sends_per_day")
+      .select("email_provider, email_provider_api_key, email_from_address, email_from_name, timezone, business_hours_start, business_hours_end, business_days, max_sends_per_day, email_api_key_secret_id")
       .limit(1)
       .single();
 
     const emailProvider  = settings?.email_provider ?? "resend";
-    const emailApiKey    = settings?.email_provider_api_key ?? "";
+
+    // Try vault first; fall back to plain column (pre-vault installs)
+    let emailApiKey: string = settings?.email_provider_api_key ?? "";
+    if (settings?.email_api_key_secret_id) {
+      const { data: vaultRow } = await supabase.rpc("get_email_api_key");
+      if (vaultRow) emailApiKey = vaultRow as string;
+    }
     const fromAddress    = settings?.email_from_address ?? "";
     const fromName       = settings?.email_from_name ?? "FitLogic";
     const practiceTimezone = settings?.timezone ?? "America/New_York";

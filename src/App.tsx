@@ -6,6 +6,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout } from "@/components/Layout";
 import { Button } from "@/components/ui/button";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Index from "./pages/Index";
 import FAQManager from "./pages/FAQManager";
 import IntakeForms from "./pages/IntakeForms";
@@ -16,6 +18,7 @@ import Settings from "./pages/Settings";
 import Referrals from "./pages/Referrals";
 import Inbox from "./pages/Inbox";
 import Retreat from "./pages/Retreat";
+import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 
 // ─── Error Boundary ────────────────────────────────────────────────────────────
@@ -63,25 +66,40 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <ErrorBoundary>
-          <Layout>
+        <AuthProvider>
+          <ErrorBoundary>
             <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/inbox" element={<Inbox />} />
-              <Route path="/faqs" element={<FAQManager />} />
-              <Route path="/forms" element={<IntakeForms />} />
-              <Route path="/intake" element={<Navigate to="/forms" replace />} />
-              <Route path="/contacts" element={<Patients />} />
-              <Route path="/patients" element={<Navigate to="/contacts" replace />} />
-              <Route path="/campaigns" element={<Campaigns />} />
-              <Route path="/analytics" element={<Analytics />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/referrals" element={<Referrals />} />
-              <Route path="/retreat" element={<Retreat />} />
-              <Route path="*" element={<NotFound />} />
+              {/* Public */}
+              <Route path="/login" element={<Login />} />
+
+              {/* Protected — all app routes require a session */}
+              <Route
+                path="/*"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <Routes>
+                        <Route path="/" element={<Index />} />
+                        <Route path="/inbox" element={<Inbox />} />
+                        <Route path="/faqs" element={<FAQManager />} />
+                        <Route path="/forms" element={<IntakeForms />} />
+                        <Route path="/intake" element={<Navigate to="/forms" replace />} />
+                        <Route path="/contacts" element={<Patients />} />
+                        <Route path="/patients" element={<Navigate to="/contacts" replace />} />
+                        <Route path="/campaigns" element={<Campaigns />} />
+                        <Route path="/analytics" element={<Analytics />} />
+                        <Route path="/settings" element={<Settings />} />
+                        <Route path="/referrals" element={<Referrals />} />
+                        <Route path="/retreat" element={<Retreat />} />
+                        <Route path="*" element={<NotFound />} />
+                      </Routes>
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
             </Routes>
-          </Layout>
-        </ErrorBoundary>
+          </ErrorBoundary>
+        </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
