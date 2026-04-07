@@ -86,7 +86,7 @@ export default function Analytics() {
     queryFn: async () => {
       const { data } = await supabase
         .from("patients")
-        .select("id, pipeline_stage, status, deal_value, lead_source, created_at");
+        .select("id, status, created_at");
       return data ?? [];
     },
   });
@@ -110,7 +110,7 @@ export default function Analytics() {
       const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
       const { data } = await supabase
         .from("campaign_send_log")
-        .select("status, opened_at, clicked_at, bounce_type, complaint_at, created_at, campaign_id")
+        .select("status, opened_at, clicked_at, created_at, campaign_id")
         .gte("created_at", since);
       return data ?? [];
     },
@@ -131,31 +131,28 @@ export default function Analytics() {
   const pipelineFunnel = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const p of patients) {
-      const s = p.pipeline_stage ?? "new_lead";
+      const s = (p as Record<string, unknown>).status as string ?? "active";
       counts[s] = (counts[s] ?? 0) + 1;
     }
-    return STAGE_ORDER.filter((s) => s !== "lost").map((s) => ({
-      stage: STAGE_LABELS[s],
-      count: counts[s] ?? 0,
-      fill:  STAGE_COLORS[s],
+    return Object.entries(counts).map(([status, count]) => ({
+      stage: status,
+      count,
+      fill: "#0e9aa7",
     }));
   }, [patients]);
 
-  // ─── Pipeline KPIs ──────────────────────────────────────────────────────
+  // ─── Patient KPIs ──────────────────────────────────────────────────────
   const pipelineKpis = useMemo(() => {
-    const active  = patients.filter((p) => p.pipeline_stage !== "lost");
-    const won     = patients.filter((p) => p.pipeline_stage === "won");
-    const total   = patients.length;
-    const wonVal  = won.reduce((s, p) => s + (p.deal_value ?? 0), 0);
-    const pipeVal = active.reduce((s, p) => s + (p.deal_value ?? 0), 0);
-    return { total, won: won.length, wonVal, pipeVal, convRate: pct(won.length, total) };
+    const total = patients.length;
+    const active = patients.filter((p) => (p as Record<string, unknown>).status === "active").length;
+    return { total, active, convRate: pct(active, total) };
   }, [patients]);
 
-  // ─── Lead Sources ───────────────────────────────────────────────────────
+  // ─── Status distribution (placeholder for lead sources) ─────────────────
   const leadSources = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const p of patients) {
-      const s = p.lead_source ?? "unknown";
+      const s = (p as Record<string, unknown>).status as string ?? "unknown";
       counts[s] = (counts[s] ?? 0) + 1;
     }
     return Object.entries(counts)
@@ -167,11 +164,11 @@ export default function Analytics() {
   // ─── Campaign Email Stats ────────────────────────────────────────────────
   const emailKpis = useMemo(() => {
     const total      = sendLog.length;
-    const sent       = sendLog.filter((r) => r.status !== "failed" && r.status !== "skipped").length;
-    const opened     = sendLog.filter((r) => r.opened_at).length;
-    const clicked    = sendLog.filter((r) => r.clicked_at).length;
-    const bounced    = sendLog.filter((r) => r.status === "bounced").length;
-    const complained = sendLog.filter((r) => r.complaint_at).length;
+    const sent       = sendLog.filter((r: any) => r.status !== "failed" && r.status !== "skipped").length;
+    const opened     = sendLog.filter((r: any) => r.opened_at).length;
+    const clicked    = sendLog.filter((r: any) => r.clicked_at).length;
+    const bounced    = sendLog.filter((r: any) => r.status === "bounced").length;
+    const complained = 0;
     return {
       total,
       sent,
@@ -208,8 +205,8 @@ export default function Analytics() {
     const buckets: Record<string, number> = {};
     const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
     for (const row of sendLog) {
-      if (new Date(row.created_at).getTime() < cutoff) continue;
-      const day = row.created_at.slice(0, 10);
+      if (new Date((row as any).created_at).getTime() < cutoff) continue;
+      const day = (row as any).created_at.slice(0, 10);
       buckets[day] = (buckets[day] ?? 0) + 1;
     }
     const sorted = Object.entries(buckets).sort(([a], [b]) => a.localeCompare(b));

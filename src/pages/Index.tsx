@@ -31,10 +31,6 @@ type ContactRow = {
   first_name: string;
   last_name: string;
   email: string | null;
-  company: string | null;
-  deal_value: number | null;
-  lead_source: string | null;
-  pipeline_stage: string;
   status: string;
   created_at: string;
 };
@@ -177,7 +173,7 @@ const Index = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("patients")
-        .select("id, first_name, last_name, email, company, deal_value, lead_source, pipeline_stage, status, created_at")
+        .select("id, first_name, last_name, email, status, created_at")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as ContactRow[];
@@ -220,7 +216,7 @@ const Index = () => {
   const stageMutation = useMutation({
     mutationFn: async ({ id, stage }: { id: string; stage: string }) => {
       const { error } = await supabase
-        .from("patients").update({ pipeline_stage: stage }).eq("id", id);
+        .from("patients").update({ status: stage }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: QK.patients }),

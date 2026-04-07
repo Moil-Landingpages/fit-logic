@@ -39,14 +39,13 @@ type Patient = {
   email: string | null;
   phone: string | null;
   date_of_birth: string | null;
-  company: string | null;
-  deal_value: number | null;
-  lead_source: string | null;
-  pipeline_stage: string;
+  gender: string | null;
   address: string | null;
   city: string | null;
   state: string | null;
   zip_code: string | null;
+  insurance_provider: string | null;
+  insurance_id: string | null;
   status: string;
   tags: string[] | null;
   notes: string | null;
@@ -207,10 +206,7 @@ export default function Patients() {
     email: form.email || null,
     phone: form.phone || null,
     date_of_birth: form.date_of_birth || null,
-    company: form.company || null,
-    deal_value: form.deal_value ? parseFloat(form.deal_value) : null,
-    lead_source: form.lead_source || null,
-    pipeline_stage: form.pipeline_stage || "new_lead",
+    gender: (form as Record<string, unknown>).gender as string || null,
     address: form.address || null,
     city: form.city || null,
     state: form.state || null,
@@ -872,11 +868,9 @@ export default function Patients() {
             defaultValues={editing ? {
               first_name: editing.first_name, last_name: editing.last_name,
               email: editing.email || "", phone: editing.phone || "",
-              date_of_birth: editing.date_of_birth || "", gender: editing.gender || "",
+              date_of_birth: editing.date_of_birth || "",
               address: editing.address || "", city: editing.city || "",
               state: editing.state || "", zip_code: editing.zip_code || "",
-              insurance_provider: editing.insurance_provider || "",
-              insurance_id: editing.insurance_id || "",
               status: editing.status, tags: (editing.tags || []).join(", "),
               notes: editing.notes || "",
             } : undefined}

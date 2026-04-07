@@ -123,7 +123,7 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
     if (!selectedSegmentId) return [];
     const seg = segments.find(s => s.id === selectedSegmentId);
     if (!seg) return [];
-    const rules: SegmentRule[] = Array.isArray(seg.rules) ? seg.rules as SegmentRule[] : [];
+    const rules: SegmentRule[] = Array.isArray(seg.rules) ? seg.rules as unknown as SegmentRule[] : [];
     return allPatientsForSeg.filter((p) => matchesSegment(p as PatientRow, rules));
   })();
 

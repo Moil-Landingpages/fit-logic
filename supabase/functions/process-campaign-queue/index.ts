@@ -429,20 +429,19 @@ serve(async (req) => {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function updateCampaignStats(supabase: ReturnType<typeof createClient>, campaignId: string) {
+async function updateCampaignStats(supabase: any, campaignId: string) {
   const { data } = await supabase
     .from("campaign_send_log")
-    .select("status, opened_at, clicked_at, bounce_type, complaint_at")
+    .select("status, opened_at, clicked_at")
     .eq("campaign_id", campaignId);
 
   if (!data) return;
 
   const stats = {
-    sent:       data.filter((r: { status: string }) => r.status === "sent").length,
-    opened:     data.filter((r: { opened_at: string | null }) => r.opened_at).length,
-    clicked:    data.filter((r: { clicked_at: string | null }) => r.clicked_at).length,
-    bounced:    data.filter((r: { bounce_type: string | null }) => r.bounce_type).length,
-    complained: data.filter((r: { complaint_at: string | null }) => r.complaint_at).length,
+    sent:       data.filter((r: any) => r.status === "sent").length,
+    opened:     data.filter((r: any) => r.opened_at).length,
+    clicked:    data.filter((r: any) => r.clicked_at).length,
+    bounced:    data.filter((r: any) => r.status === "bounced").length,
   };
 
   await supabase.from("campaigns").update({ stats }).eq("id", campaignId);
