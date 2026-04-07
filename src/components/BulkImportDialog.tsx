@@ -61,16 +61,6 @@ const AUTO_MAP: Record<string, DbField> = {
   dob:          "date_of_birth",
   "date of birth": "date_of_birth",
   birthday:     "date_of_birth",
-  company:      "company",
-  organization: "company",
-  practice:     "company",
-  "deal value": "deal_value",
-  "deal_value": "deal_value",
-  revenue:      "deal_value",
-  source:       "lead_source",
-  "lead source": "lead_source",
-  stage:        "pipeline_stage",
-  "pipeline stage": "pipeline_stage",
   status:       "status",
   address:      "address",
   city:         "city",
@@ -168,11 +158,10 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
       const raw = (csvRow[csvCol] ?? "").trim();
       if (!raw) continue;
 
-      if (dbField === "deal_value") {
-        const n = parseFloat(raw.replace(/[^0-9.]/g, ""));
-        if (!isNaN(n)) rec[dbField] = n;
-      } else if (dbField === "tags") {
+      if (dbField === "tags") {
         rec[dbField] = raw.split(",").map((t) => t.trim()).filter(Boolean);
+      } else if (dbField === "zip") {
+        rec["zip_code"] = raw;
       } else {
         rec[dbField] = raw;
       }
