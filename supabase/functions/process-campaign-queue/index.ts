@@ -4,23 +4,146 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "authorization, x-client-info, apikey, content-type",
 };
+
+// ─── Email provider adapter ───────────────────────────────────────────────────
+
+interface EmailPayload {
+  to:      string;
+  toName:  string | null;
+  subject: string;
+  html:    string;
+  from:    string;       // "Name <email@domain.com>"
+  replyTo?: string;
+  listUnsubscribeUrl: string;
+  trackingId: string;
+}
+
+interface SendResult {
+  success: boolean;
+  messageId?: string;
+  error?: string;
+}
+
+async function sendViaResend(apiKey: string, payload: EmailPayload): Promise<SendResult> {
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      from:    payload.from,
+      to:      payload.toName ? [`${payload.toName} <${payload.to}>`] : [payload.to],
+      subject: payload.subject,
+      html:    payload.html,
+      headers: {
+        "List-Unsubscribe":      `<${payload.listUnsubscribeUrl}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        "X-Tracking-ID":         payload.trackingId,
+      },
+    }),
+  });
+  if (res.ok) {
+    const data = await res.json();
+    return { success: true, messageId: data.id };
+  }
+  const errText = await res.text();
+  return { success: false, error: `Resend ${res.status}: ${errText}` };
+}
+
+async function sendViaSendGrid(apiKey: string, payload: EmailPayload): Promise<SendResult> {
+  // Parse "Name <email>" format
+  const fromMatch = payload.from.match(/^(.+?)\s*<(.+)>$/) ?? [null, "", payload.from];
+  const fromName  = fromMatch[1]?.trim() || "";
+  const fromEmail = fromMatch[2]?.trim() || payload.from;
+
+  const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      personalizations: [{
+        to: [{ email: payload.to, ...(payload.toName ? { name: payload.toName } : {}) }],
+      }],
+      from:    { email: fromEmail, ...(fromName ? { name: fromName } : {}) },
+      subject: payload.subject,
+      content: [{ type: "text/html", value: payload.html }],
+      headers: {
+        "List-Unsubscribe":      `<${payload.listUnsubscribeUrl}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        "X-Tracking-ID":         payload.trackingId,
+      },
+    }),
+  });
+
+  if (res.status === 202) {
+    // SendGrid returns 202 with no body on success
+    const messageId = res.headers.get("X-Message-Id") ?? undefined;
+    return { success: true, messageId };
+  }
+  const errText = await res.text();
+  return { success: false, error: `SendGrid ${res.status}: ${errText}` };
+}
+
+async function sendEmail(
+  provider: string,
+  apiKey: string,
+  payload: EmailPayload
+): Promise<SendResult> {
+  try {
+    if (provider === "resend")    return await sendViaResend(apiKey, payload);
+    if (provider === "sendgrid")  return await sendViaSendGrid(apiKey, payload);
+    // Unknown provider — log but don't crash the queue
+    return { success: false, error: `Unknown provider: ${provider}` };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ─── Main handler ─────────────────────────────────────────────────────────────
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const supabase = createClient(supabaseUrl, serviceKey);
+  const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabase    = createClient(supabaseUrl, serviceKey);
 
   try {
-    const now = new Date();
-    const currentHour = now.getUTCHours(); // Note: adjust for timezone if needed
-    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const currentDay = dayNames[now.getUTCDay()];
+    // ── Load practice settings (email provider, from address, timezone) ───
+    const { data: settings } = await supabase
+      .from("practice_settings")
+      .select("email_provider, email_provider_api_key, email_from_address, email_from_name, timezone, business_hours_start, business_hours_end, business_days, max_sends_per_day")
+      .limit(1)
+      .single();
 
-    // Get all scheduled campaigns that are due
+    const emailProvider  = settings?.email_provider ?? "resend";
+    const emailApiKey    = settings?.email_provider_api_key ?? "";
+    const fromAddress    = settings?.email_from_address ?? "";
+    const fromName       = settings?.email_from_name ?? "FitLogic";
+    const practiceTimezone = settings?.timezone ?? "America/New_York";
+
+    // Warn but don't abort — queue still runs, sends will fail gracefully per-recipient
+    if (!emailApiKey || !fromAddress) {
+      console.warn("Email provider not fully configured. Sends will be logged as failed.");
+    }
+
+    const fromHeader = fromName ? `${fromName} <${fromAddress}>` : fromAddress;
+
+    // ── Determine current time in practice timezone ────────────────────────
+    const now = new Date();
+    // Convert UTC now to practice local time for business-hours checking
+    const localTimeStr = now.toLocaleString("en-US", { timeZone: practiceTimezone });
+    const localNow     = new Date(localTimeStr);
+    const currentHour  = localNow.getHours();
+    const dayNames     = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const currentDay   = dayNames[localNow.getDay()];
+
+    // ── Fetch scheduled/sending campaigns ─────────────────────────────────
     const { data: campaigns, error: campErr } = await supabase
       .from("campaigns")
       .select("*")
@@ -28,34 +151,45 @@ serve(async (req) => {
       .lte("scheduled_at", now.toISOString());
 
     if (campErr) throw campErr;
-    if (!campaigns || campaigns.length === 0) {
-      return new Response(JSON.stringify({ message: "No campaigns to process" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!campaigns?.length) {
+      return json({ message: "No campaigns to process" });
     }
 
-    const results: any[] = [];
+    // ── Load global suppression list once ─────────────────────────────────
+    const { data: suppressions } = await supabase
+      .from("email_suppressions")
+      .select("email");
+    const suppressedEmails = new Set(
+      (suppressions ?? []).map((s: { email: string }) => s.email.toLowerCase())
+    );
+
+    // ── Load global unsubscribes ───────────────────────────────────────────
+    const { data: unsubs } = await supabase
+      .from("campaign_unsubscribes")
+      .select("email");
+    const unsubEmails = new Set(
+      (unsubs ?? []).map((u: { email: string }) => u.email.toLowerCase())
+    );
+
+    const results: unknown[] = [];
 
     for (const campaign of campaigns) {
-      // Check business hours
-      const bhStart = campaign.business_hours_start ?? 8;
-      const bhEnd = campaign.business_hours_end ?? 18;
-      const bizDays: string[] = campaign.business_days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"];
+      // ── Per-campaign business hours (fall back to practice settings) ─────
+      const bhStart = campaign.business_hours_start ?? settings?.business_hours_start ?? 8;
+      const bhEnd   = campaign.business_hours_end   ?? settings?.business_hours_end   ?? 18;
+      const bizDays: string[] = campaign.business_days ?? settings?.business_days ?? ["Mon","Tue","Wed","Thu","Fri"];
 
       if (!bizDays.includes(currentDay)) {
         results.push({ campaign: campaign.name, skipped: "not a business day" });
         continue;
       }
-
-      // Simple hour check (UTC - in production you'd want timezone support)
       if (currentHour < bhStart || currentHour >= bhEnd) {
         results.push({ campaign: campaign.name, skipped: "outside business hours" });
         continue;
       }
 
-      const maxSends = campaign.max_sends_per_day ?? 50;
-
-      // Count how many we've already sent today for this campaign
+      // ── Daily send-limit check ────────────────────────────────────────────
+      const maxSends   = campaign.max_sends_per_day ?? settings?.max_sends_per_day ?? 500;
       const todayStart = new Date(now);
       todayStart.setUTCHours(0, 0, 0, 0);
 
@@ -72,26 +206,26 @@ serve(async (req) => {
         continue;
       }
 
-      // Mark campaign as sending
+      // ── Mark as sending ───────────────────────────────────────────────────
       if (campaign.status === "scheduled") {
         await supabase.from("campaigns").update({ status: "sending" }).eq("id", campaign.id);
       }
 
-      // Determine which step to send for sequence campaigns
+      // ── Load sequences / template ─────────────────────────────────────────
       const isSequence = campaign.campaign_type === "sequence";
-      let sequences: any[] = [];
+      let sequences: { step_number: number; delay_days: number; subject_override: string | null; body_html_override: string | null }[] = [];
+
       if (isSequence) {
         const { data: seqs } = await supabase
           .from("campaign_sequences")
-          .select("*")
+          .select("step_number, delay_days, subject_override, body_html_override")
           .eq("campaign_id", campaign.id)
           .order("step_number");
-        sequences = seqs || [];
+        sequences = seqs ?? [];
       }
 
-      // Get template for single campaigns
       let templateSubject = "";
-      let templateBody = "";
+      let templateBody    = "";
       if (!isSequence && campaign.template_id) {
         const { data: tmpl } = await supabase
           .from("email_templates")
@@ -100,64 +234,60 @@ serve(async (req) => {
           .single();
         if (tmpl) {
           templateSubject = tmpl.subject;
-          templateBody = tmpl.body_html || "";
+          templateBody    = tmpl.body_html ?? "";
         }
       }
 
-      // Get unsubscribed emails
-      const { data: unsubs } = await supabase
-        .from("campaign_unsubscribes")
-        .select("email");
-      const unsubEmails = new Set((unsubs || []).map(u => u.email.toLowerCase()));
-
-      // Get pending recipients
+      // ── Fetch pending recipients ──────────────────────────────────────────
       const { data: pendingRecipients } = await supabase
         .from("campaign_recipients")
-        .select("*")
+        .select("id, email, name, patient_id, current_step, status")
         .eq("campaign_id", campaign.id)
         .eq("status", "pending")
         .order("created_at")
-        .limit(remaining);
+        .limit(Math.min(remaining, 500)); // Never fetch more than 500 at once
 
-      if (!pendingRecipients || pendingRecipients.length === 0) {
-        // All recipients processed - mark campaign as sent
-        await supabase.from("campaigns").update({
-          status: "sent",
-          sent_at: now.toISOString(),
-        }).eq("id", campaign.id);
+      if (!pendingRecipients?.length) {
+        await supabase.from("campaigns")
+          .update({ status: "sent", sent_at: now.toISOString() })
+          .eq("id", campaign.id);
+        await updateCampaignStats(supabase, campaign.id);
         results.push({ campaign: campaign.name, completed: true });
         continue;
       }
 
-      let sentCount = 0;
+      let sentCount    = 0;
+      let failedCount  = 0;
+      let skippedCount = 0;
 
       for (const recipient of pendingRecipients) {
-        // Skip unsubscribed
-        if (unsubEmails.has(recipient.email.toLowerCase())) {
+        const emailLower = recipient.email.toLowerCase();
+
+        // ── Skip suppressed / unsubscribed ────────────────────────────────
+        if (suppressedEmails.has(emailLower) || unsubEmails.has(emailLower)) {
           await supabase.from("campaign_recipients")
-            .update({ status: "skipped", last_error: "Unsubscribed" })
+            .update({ status: "skipped", last_error: "Suppressed or unsubscribed" })
             .eq("id", recipient.id);
+          skippedCount++;
           continue;
         }
 
-        // Determine email content
-        let subject = "";
-        let bodyHtml = "";
+        // ── Resolve email content ─────────────────────────────────────────
+        let subject    = "";
+        let bodyHtml   = "";
         let stepNumber = 1;
 
         if (isSequence) {
           const currentStep = recipient.current_step ?? 0;
-          const nextStep = sequences.find(s => s.step_number === currentStep + 1);
-          
+          const nextStep    = sequences.find(s => s.step_number === currentStep + 1);
+
           if (!nextStep) {
-            // All steps completed
             await supabase.from("campaign_recipients")
-              .update({ status: "completed" })
-              .eq("id", recipient.id);
+              .update({ status: "completed" }).eq("id", recipient.id);
             continue;
           }
 
-          // Check if delay has passed since last send
+          // Check step delay
           if (currentStep > 0 && nextStep.delay_days > 0) {
             const { data: lastSend } = await supabase
               .from("campaign_send_log")
@@ -167,22 +297,21 @@ serve(async (req) => {
               .eq("status", "sent")
               .order("sent_at", { ascending: false })
               .limit(1)
-              .single();
+              .maybeSingle();
 
             if (lastSend?.sent_at) {
-              const lastSentDate = new Date(lastSend.sent_at);
-              const delayMs = nextStep.delay_days * 24 * 60 * 60 * 1000;
-              if (now.getTime() - lastSentDate.getTime() < delayMs) {
-                continue; // Skip - delay not elapsed yet
+              const elapsed = now.getTime() - new Date(lastSend.sent_at).getTime();
+              if (elapsed < nextStep.delay_days * 86_400_000) {
+                continue; // Delay not elapsed
               }
             }
           }
 
-          subject = nextStep.subject_override || "";
-          bodyHtml = nextStep.body_html_override || "";
+          subject    = nextStep.subject_override ?? "";
+          bodyHtml   = nextStep.body_html_override ?? "";
           stepNumber = nextStep.step_number;
         } else {
-          subject = templateSubject;
+          subject  = templateSubject;
           bodyHtml = templateBody;
         }
 
@@ -190,84 +319,132 @@ serve(async (req) => {
           await supabase.from("campaign_recipients")
             .update({ status: "failed", last_error: "Missing email content" })
             .eq("id", recipient.id);
+          failedCount++;
           continue;
         }
 
-        // Create tracking record
-        const trackingId = crypto.randomUUID();
-        const projectId = supabaseUrl.replace("https://", "").replace(".supabase.co", "");
-        const trackPixelUrl = `${supabaseUrl}/functions/v1/track-email?t=${trackingId}&a=open`;
-        const unsubUrl = `${supabaseUrl}/functions/v1/campaign-unsubscribe?t=${trackingId}`;
+        // ── Build tracking URLs ───────────────────────────────────────────
+        const trackingId   = crypto.randomUUID();
+        const trackBase    = `${supabaseUrl}/functions/v1`;
+        const trackPixel   = `${trackBase}/track-email?t=${trackingId}&a=open`;
+        const unsubLink    = `${trackBase}/campaign-unsubscribe?t=${trackingId}`;
 
-        // Wrap links for click tracking
-        const linkWrappedBody = bodyHtml.replace(
+        // Wrap href links for click tracking
+        const trackedBody = bodyHtml.replace(
           /href="(https?:\/\/[^"]+)"/g,
-          (match: string, url: string) => {
-            const clickUrl = `${supabaseUrl}/functions/v1/track-email?t=${trackingId}&a=click&url=${encodeURIComponent(url)}`;
+          (_match: string, url: string) => {
+            const clickUrl = `${trackBase}/track-email?t=${trackingId}&a=click&url=${encodeURIComponent(url)}`;
             return `href="${clickUrl}"`;
           }
         );
 
-        // Add tracking pixel and unsubscribe footer
-        const personalizedName = recipient.name || "there";
-        const finalBody = `${linkWrappedBody}
-<img src="${trackPixelUrl}" width="1" height="1" style="display:none" alt="" />
+        // Assemble final HTML with pixel + footer
+        const finalHtml = `${trackedBody}
+<img src="${trackPixel}" width="1" height="1" style="display:none" alt="" />
 <div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;text-align:center;font-size:11px;color:#9ca3af;">
-  <a href="${unsubUrl}" style="color:#9ca3af;text-decoration:underline;">Unsubscribe</a> from future emails
+  You received this email because you opted in.<br/>
+  <a href="${unsubLink}" style="color:#9ca3af;text-decoration:underline;">Unsubscribe</a>
 </div>`;
 
-        // Log the send attempt
+        // ── Insert send log (queued) ───────────────────────────────────────
         await supabase.from("campaign_send_log").insert({
-          campaign_id: campaign.id,
+          campaign_id:  campaign.id,
           recipient_id: recipient.id,
-          step_number: stepNumber,
-          status: "queued",
-          tracking_id: trackingId,
+          step_number:  stepNumber,
+          status:       "queued",
+          tracking_id:  trackingId,
+          provider:     emailProvider,
         });
 
-        // TODO: Actually send via Lovable Email infrastructure
-        // For now, mark as sent (email domain setup will enable actual sending)
-        await supabase.from("campaign_send_log")
-          .update({ status: "sent", sent_at: now.toISOString() })
-          .eq("tracking_id", trackingId);
+        // ── Attempt delivery ──────────────────────────────────────────────
+        const sendResult = await sendEmail(emailProvider, emailApiKey, {
+          to:                 recipient.email,
+          toName:             recipient.name,
+          subject,
+          html:               finalHtml,
+          from:               fromHeader,
+          listUnsubscribeUrl: unsubLink,
+          trackingId,
+        });
 
-        // Update recipient status
-        const recipientUpdate: any = {
-          status: isSequence ? "pending" : "sent",
-          sent_at: now.toISOString(),
-        };
-        if (isSequence) {
-          recipientUpdate.current_step = stepNumber;
-          // Check if this was the last step
-          if (stepNumber >= sequences.length) {
-            recipientUpdate.status = "completed";
+        if (sendResult.success) {
+          await supabase.from("campaign_send_log")
+            .update({
+              status:              "sent",
+              sent_at:             now.toISOString(),
+              provider_message_id: sendResult.messageId ?? null,
+            })
+            .eq("tracking_id", trackingId);
+
+          const recipientUpdate: Record<string, unknown> = {
+            status:  isSequence ? "pending" : "sent",
+            sent_at: now.toISOString(),
+          };
+          if (isSequence) {
+            recipientUpdate.current_step = stepNumber;
+            if (stepNumber >= sequences.length) recipientUpdate.status = "completed";
           }
-        }
-        await supabase.from("campaign_recipients")
-          .update(recipientUpdate)
-          .eq("id", recipient.id);
+          await supabase.from("campaign_recipients")
+            .update(recipientUpdate).eq("id", recipient.id);
 
-        sentCount++;
+          sentCount++;
+        } else {
+          // Mark log as failed with provider error
+          await supabase.from("campaign_send_log")
+            .update({ status: "failed", error_message: sendResult.error ?? "Unknown error" })
+            .eq("tracking_id", trackingId);
+
+          await supabase.from("campaign_recipients")
+            .update({ status: "failed", last_error: sendResult.error ?? "Send failed" })
+            .eq("id", recipient.id);
+
+          failedCount++;
+          console.error(`Send failed for ${recipient.email}:`, sendResult.error);
+        }
       }
 
-      // Update campaign sent_count once after processing the whole batch
+      // ── Update campaign sent_count + stats ────────────────────────────
       if (sentCount > 0) {
         await supabase.from("campaigns")
           .update({ sent_count: (campaign.sent_count ?? 0) + sentCount })
           .eq("id", campaign.id);
+        await updateCampaignStats(supabase, campaign.id);
       }
 
-      results.push({ campaign: campaign.name, sent: sentCount });
+      results.push({ campaign: campaign.name, sent: sentCount, failed: failedCount, skipped: skippedCount });
     }
 
-    return new Response(JSON.stringify({ processed: results }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json({ processed: results });
   } catch (error) {
     console.error("process-campaign-queue error:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
   }
 });
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async function updateCampaignStats(supabase: ReturnType<typeof createClient>, campaignId: string) {
+  const { data } = await supabase
+    .from("campaign_send_log")
+    .select("status, opened_at, clicked_at, bounce_type, complaint_at")
+    .eq("campaign_id", campaignId);
+
+  if (!data) return;
+
+  const stats = {
+    sent:       data.filter((r: { status: string }) => r.status === "sent").length,
+    opened:     data.filter((r: { opened_at: string | null }) => r.opened_at).length,
+    clicked:    data.filter((r: { clicked_at: string | null }) => r.clicked_at).length,
+    bounced:    data.filter((r: { bounce_type: string | null }) => r.bounce_type).length,
+    complained: data.filter((r: { complaint_at: string | null }) => r.complaint_at).length,
+  };
+
+  await supabase.from("campaigns").update({ stats }).eq("id", campaignId);
+}
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}

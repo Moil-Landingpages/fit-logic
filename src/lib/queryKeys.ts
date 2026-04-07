@@ -17,4 +17,5 @@ export const QK = {
   faqs:               ["faqs"]               as const,
   staff:              ["staff"]              as const,
   settings:           ["settings"]           as const,
+  suppressions:       ["email_suppressions"] as const,
 } as const;
