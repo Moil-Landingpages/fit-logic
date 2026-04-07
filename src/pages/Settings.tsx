@@ -549,20 +549,40 @@ function IntegrationsTab({
               <SelectContent>
                 <SelectItem value="resend">Resend</SelectItem>
                 <SelectItem value="sendgrid">SendGrid</SelectItem>
+                <SelectItem value="gmail">Gmail (Google Workspace)</SelectItem>
                 <SelectItem value="smtp">Custom SMTP</SelectItem>
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5 max-w-sm">
-            <Label className="text-xs">API Key</Label>
-            <Input
-              type="password"
-              value={emailForm.email_provider_api_key}
-              onChange={(e) => setEmailForm((f) => ({ ...f, email_provider_api_key: e.target.value }))}
-              placeholder={emailForm.email_provider === "resend" ? "re_..." : "SG.xxx..."}
-              className="h-9 font-mono text-xs"
-            />
-          </div>
+
+          {emailForm.email_provider !== "gmail" ? (
+            <div className="space-y-1.5 max-w-sm">
+              <Label className="text-xs">API Key</Label>
+              <Input
+                type="password"
+                value={emailForm.email_provider_api_key}
+                onChange={(e) => setEmailForm((f) => ({ ...f, email_provider_api_key: e.target.value }))}
+                placeholder={emailForm.email_provider === "resend" ? "re_..." : "SG.xxx..."}
+                className="h-9 font-mono text-xs"
+              />
+            </div>
+          ) : (
+            <div className="flex items-start gap-2 p-3 rounded-lg border text-xs">
+              <div className="flex-1">
+                <p className="font-medium text-foreground">Sends via your connected Google account</p>
+                <p className="text-muted-foreground mt-0.5">No API key needed — Gmail uses the OAuth token from the Google Workspace connection below.</p>
+              </div>
+              {isGoogleGmailConnected ? (
+                <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] shrink-0">
+                  <CheckCircle2 className="h-3 w-3 mr-1" /> Connected
+                </Badge>
+              ) : (
+                <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[10px] shrink-0">
+                  <AlertCircle className="h-3 w-3 mr-1" /> Not connected
+                </Badge>
+              )}
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3 max-w-sm">
             <div className="space-y-1.5">
               <Label className="text-xs">From Name</Label>
@@ -708,8 +728,21 @@ const Settings = () => {
   // Handle Google OAuth callback — exchange code for tokens via edge function
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const code = params.get("code");
-    const tab  = params.get("tab");
+    const code       = params.get("code");
+    const tab        = params.get("tab");
+    const oauthError = params.get("error");
+
+    // User cancelled or Google returned an error
+    if (oauthError && tab === "integrations") {
+      window.history.replaceState({}, "", window.location.pathname + "?tab=integrations");
+      setActiveTab("integrations");
+      toast.error(
+        oauthError === "access_denied"
+          ? "Google connection was cancelled."
+          : `Google OAuth error: ${oauthError}`,
+      );
+      return;
+    }
 
     if (code && tab === "integrations") {
       // Clean URL immediately so a refresh doesn't re-trigger

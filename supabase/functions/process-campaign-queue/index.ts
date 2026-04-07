@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { getFreshGoogleToken } from "../_shared/google-tokens.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -89,15 +90,74 @@ async function sendViaSendGrid(apiKey: string, payload: EmailPayload): Promise<S
   return { success: false, error: `SendGrid ${res.status}: ${errText}` };
 }
 
+// ─── Gmail via OAuth ──────────────────────────────────────────────────────────
+
+/** Encode a string to base64url (RFC 4648 §5) for the Gmail raw message API. */
+function toBase64Url(input: string): string {
+  const bytes = new TextEncoder().encode(input);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function sendViaGmail(accessToken: string, payload: EmailPayload): Promise<SendResult> {
+  const toField = payload.toName ? `${payload.toName} <${payload.to}>` : payload.to;
+
+  const headerLines: string[] = [
+    `From: ${payload.from}`,
+    `To: ${toField}`,
+    `Subject: ${payload.subject}`,
+    "MIME-Version: 1.0",
+    "Content-Type: text/html; charset=utf-8",
+  ];
+  if (payload.listUnsubscribeUrl) {
+    headerLines.push(`List-Unsubscribe: <${payload.listUnsubscribeUrl}>`);
+    headerLines.push("List-Unsubscribe-Post: List-Unsubscribe=One-Click");
+  }
+  if (payload.trackingId) headerLines.push(`X-Tracking-ID: ${payload.trackingId}`);
+
+  const raw = `${headerLines.join("\r\n")}\r\n\r\n${payload.html}`;
+
+  const res = await fetch(
+    "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+    {
+      method:  "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ raw: toBase64Url(raw) }),
+    }
+  );
+
+  if (res.ok) {
+    const data = await res.json();
+    return { success: true, messageId: data.id };
+  }
+  const errText = await res.text();
+  if (res.status === 401) {
+    return { success: false, error: "Gmail token expired. Go to Settings → Integrations and reconnect Google." };
+  }
+  return { success: false, error: `Gmail ${res.status}: ${errText}` };
+}
+
+// ─── Dispatcher ───────────────────────────────────────────────────────────────
+
 async function sendEmail(
   provider: string,
   apiKey: string,
-  payload: EmailPayload
+  payload: EmailPayload,
+  gmailAccessToken?: string | null,
 ): Promise<SendResult> {
   try {
-    if (provider === "resend")    return await sendViaResend(apiKey, payload);
-    if (provider === "sendgrid")  return await sendViaSendGrid(apiKey, payload);
-    // Unknown provider — log but don't crash the queue
+    if (provider === "gmail") {
+      if (!gmailAccessToken) {
+        return { success: false, error: "Gmail selected but no valid token. Connect Google in Settings → Integrations." };
+      }
+      return await sendViaGmail(gmailAccessToken, payload);
+    }
+    if (provider === "resend")   return await sendViaResend(apiKey, payload);
+    if (provider === "sendgrid") return await sendViaSendGrid(apiKey, payload);
     return { success: false, error: `Unknown provider: ${provider}` };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -121,7 +181,7 @@ serve(async (req) => {
     // ── Load practice settings (email provider, from address, timezone) ───
     const { data: settings } = await supabase
       .from("practice_settings")
-      .select("email_provider, email_provider_api_key, email_from_address, email_from_name, timezone, business_hours_start, business_hours_end, business_days, max_sends_per_day, email_api_key_secret_id")
+      .select("email_provider, email_provider_api_key, email_from_address, email_from_name, timezone, business_hours_start, business_hours_end, business_days, max_sends_per_day, email_api_key_secret_id, google_gmail_token")
       .limit(1)
       .single();
 
@@ -136,12 +196,19 @@ serve(async (req) => {
     }
     if (!emailApiKey) emailApiKey = Deno.env.get("RESEND_API_KEY") ?? "";
 
+    // For Gmail provider: get a fresh (auto-refreshed) OAuth access token
+    let gmailAccessToken: string | null = null;
+    if (emailProvider === "gmail") {
+      gmailAccessToken = await getFreshGoogleToken(supabase, "gmail");
+    }
+
     const fromAddress    = settings?.email_from_address ?? "";
     const fromName       = settings?.email_from_name ?? "FitLogic";
     const practiceTimezone = settings?.timezone ?? "America/New_York";
 
     // Warn but don't abort — queue still runs, sends will fail gracefully per-recipient
-    if (!emailApiKey || !fromAddress) {
+    const providerReady = emailProvider === "gmail" ? !!gmailAccessToken : !!emailApiKey;
+    if (!providerReady || !fromAddress) {
       console.warn("Email provider not fully configured. Sends will be logged as failed.");
     }
 
@@ -150,8 +217,8 @@ serve(async (req) => {
     // ── Test-send mode ────────────────────────────────────────────────────────
     // Called from Settings UI to verify email config before any real campaign.
     if (reqBody.test_to) {
-      if (!emailApiKey)  return json({ success: false, error: "No API key configured in Settings → Email Delivery Provider." });
-      if (!fromAddress)  return json({ success: false, error: "No From Email configured in Settings → Email Delivery Provider." });
+      if (!providerReady) return json({ success: false, error: emailProvider === "gmail" ? "Gmail not connected. Go to Settings → Integrations → Google Workspace and connect." : "No API key configured in Settings → Email Delivery Provider." });
+      if (!fromAddress)   return json({ success: false, error: "No From Email configured in Settings → Email Delivery Provider." });
       const testResult = await sendEmail(emailProvider, emailApiKey, {
         to:                 reqBody.test_to as string,
         toName:             null,
@@ -165,7 +232,7 @@ serve(async (req) => {
         from:               fromHeader,
         listUnsubscribeUrl: "",
         trackingId:         crypto.randomUUID(),
-      });
+      }, gmailAccessToken);
       return json(testResult);
     }
 
@@ -411,7 +478,7 @@ serve(async (req) => {
           from:               fromHeader,
           listUnsubscribeUrl: unsubLink,
           trackingId,
-        });
+        }, gmailAccessToken);
 
         if (sendResult.success) {
           await supabase.from("campaign_send_log")

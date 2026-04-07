@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getFreshGoogleToken } from "../_shared/google-tokens.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,47 +8,13 @@ const corsHeaders = {
 };
 
 // ---------------------------------------------------------------------------
-// Email helpers (mirrors process-campaign-queue adapters)
+// Email helpers
 // ---------------------------------------------------------------------------
-async function sendViaResend(
-  apiKey: string,
-  from: string,
-  to: string,
-  subject: string,
-  html: string
-): Promise<void> {
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ from, to, subject, html }),
-  });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Resend error ${res.status}: ${txt}`);
-  }
-}
-
-async function sendViaSendGrid(
-  apiKey: string,
-  from: string,
-  to: string,
-  subject: string,
-  html: string
-): Promise<void> {
-  const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      personalizations: [{ to: [{ email: to }] }],
-      from: { email: from },
-      subject,
-      content: [{ type: "text/html", value: html }],
-    }),
-  });
-  if (res.status !== 202) {
-    const txt = await res.text();
-    throw new Error(`SendGrid error ${res.status}: ${txt}`);
-  }
+function toBase64Url(input: string): string {
+  const bytes = new TextEncoder().encode(input);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 async function sendEmail(
@@ -56,13 +23,49 @@ async function sendEmail(
   from: string,
   to: string,
   subject: string,
-  html: string
+  html: string,
+  gmailAccessToken?: string | null,
 ): Promise<void> {
+  if (provider === "gmail") {
+    if (!gmailAccessToken) throw new Error("Gmail not connected. Go to Settings → Integrations.");
+    const raw = `From: ${from}\r\nTo: ${to}\r\nSubject: ${subject}\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n\r\n${html}`;
+    const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${gmailAccessToken}` },
+      body: JSON.stringify({ raw: toBase64Url(raw) }),
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Gmail error ${res.status}: ${txt}`);
+    }
+    return;
+  }
   if (provider === "sendgrid") {
-    await sendViaSendGrid(apiKey, from, to, subject, html);
-  } else {
-    // Default: resend
-    await sendViaResend(apiKey, from, to, subject, html);
+    const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        personalizations: [{ to: [{ email: to }] }],
+        from: { email: from },
+        subject,
+        content: [{ type: "text/html", value: html }],
+      }),
+    });
+    if (res.status !== 202) {
+      const txt = await res.text();
+      throw new Error(`SendGrid error ${res.status}: ${txt}`);
+    }
+    return;
+  }
+  // Default: Resend
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ from, to, subject, html }),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Resend error ${res.status}: ${txt}`);
   }
 }
 
@@ -93,7 +96,7 @@ serve(async (req) => {
 
     // Fetch practice settings (email provider) and active FAQs in parallel
     const [{ data: settings }, { data: faqs }] = await Promise.all([
-      sb.from("practice_settings").select("email_provider, email_provider_api_key, email_api_key_secret_id, email_from_address, email_from_name, escalation_staff_id").limit(1).single(),
+      sb.from("practice_settings").select("email_provider, email_provider_api_key, email_api_key_secret_id, email_from_address, email_from_name, escalation_staff_id, google_gmail_token").limit(1).single(),
       sb.from("faqs").select("*").eq("active", true),
     ]);
 
@@ -102,6 +105,11 @@ serve(async (req) => {
     if (settings?.email_api_key_secret_id) {
       const { data: vaultKey } = await sb.rpc("get_email_api_key");
       if (vaultKey) emailApiKey = vaultKey as string;
+    }
+    // For Gmail provider: get a fresh (auto-refreshed) OAuth access token
+    let gmailAccessToken: string | null = null;
+    if (emailProvider === "gmail") {
+      gmailAccessToken = await getFreshGoogleToken(sb, "gmail");
     }
     const fromAddress: string = settings?.email_from_address ?? "";
     const fromName: string = settings?.email_from_name ?? "FitLogic";
@@ -206,7 +214,8 @@ Respond in JSON format:
             fromHeader,
             inquiry.patient_email,
             "Re: Your inquiry to FitLogic",
-            html
+            html,
+            gmailAccessToken,
           );
           emailSent = true;
         } catch (err) {
@@ -252,7 +261,8 @@ Respond in JSON format:
               fromHeader,
               staffMember.email,
               `[FitLogic] Escalated inquiry from ${inquiry.patient_name}`,
-              html
+              html,
+              gmailAccessToken,
             );
           } catch (err) {
             console.error("Escalation notification email failed:", err instanceof Error ? err.message : err);
