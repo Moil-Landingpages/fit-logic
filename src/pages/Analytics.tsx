@@ -254,9 +254,8 @@ export default function Analytics() {
           {/* KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <KpiCard title="Total Contacts" value={fmt(pipelineKpis.total)} icon={Users} />
-            <KpiCard title="Pipeline Value" value={`$${fmt(pipelineKpis.pipeVal)}`} icon={DollarSign} />
-            <KpiCard title="Won Revenue" value={`$${fmt(pipelineKpis.wonVal)}`} sub={`${pipelineKpis.won} closed`} icon={CheckCircle2} />
-            <KpiCard title="Conversion Rate" value={pipelineKpis.convRate} sub="leads → won" icon={TrendingUp} />
+            <KpiCard title="Active Contacts" value={fmt(pipelineKpis.active)} icon={Users} />
+            <KpiCard title="Active Rate" value={pipelineKpis.convRate} sub="of total" icon={TrendingUp} />
           </div>
 
           <div className="grid md:grid-cols-2 gap-5">
