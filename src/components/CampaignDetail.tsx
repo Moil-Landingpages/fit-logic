@@ -250,6 +250,11 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
           {campaign.status === "draft" && (
             <>
               <Button variant="outline" size="sm" onClick={() => onEdit(campaign)}><Pencil className="h-3.5 w-3.5 mr-1" />Edit</Button>
+              <Button variant="outline" size="sm"
+                onClick={() => sendNowMut.mutate()}
+                disabled={recipients.length === 0 || sendNowMut.isPending}>
+                <Zap className="h-3.5 w-3.5 mr-1" />{sendNowMut.isPending ? "Sending..." : "Send Now"}
+              </Button>
               <Button size="sm" className="gradient-brand text-primary-foreground"
                 onClick={() => setShowSchedulePanel(true)} disabled={recipients.length === 0}>
                 <CalendarClock className="h-3.5 w-3.5 mr-1" />Schedule
@@ -265,9 +270,30 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
             </Button>
           )}
           {campaign.status === "paused" && (
-            <Button size="sm" className="gradient-brand text-primary-foreground"
-              onClick={() => setShowSchedulePanel(true)}>
-              <Play className="h-3.5 w-3.5 mr-1" />Resume
+            <>
+              <Button size="sm" className="gradient-brand text-primary-foreground"
+                onClick={() => setShowSchedulePanel(true)}>
+                <Play className="h-3.5 w-3.5 mr-1" />Resume
+              </Button>
+              <Button variant="outline" size="sm"
+                onClick={() => sendNowMut.mutate()}
+                disabled={sendNowMut.isPending}>
+                <Zap className="h-3.5 w-3.5 mr-1" />Send Now
+              </Button>
+            </>
+          )}
+          {(campaign.status === "sent" || campaign.status === "sending") && failedRecipients.length > 0 && (
+            <Button variant="outline" size="sm"
+              onClick={() => retryFailedMut.mutate()}
+              disabled={retryFailedMut.isPending}>
+              <RotateCcw className="h-3.5 w-3.5 mr-1" />{retryFailedMut.isPending ? "Retrying..." : `Retry ${failedRecipients.length} Failed`}
+            </Button>
+          )}
+          {failedRecipients.length > 0 && !["sent", "sending"].includes(campaign.status) && (
+            <Button variant="outline" size="sm" className="text-destructive border-destructive/30 hover:bg-destructive/5"
+              onClick={() => retryFailedMut.mutate()}
+              disabled={retryFailedMut.isPending}>
+              <RotateCcw className="h-3.5 w-3.5 mr-1" />Retry {failedRecipients.length} Failed
             </Button>
           )}
         </div>
