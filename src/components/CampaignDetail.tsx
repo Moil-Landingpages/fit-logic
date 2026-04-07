@@ -155,6 +155,53 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const sendNowMut = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("campaigns").update({
+        status: "scheduled",
+        scheduled_at: new Date().toISOString(),
+        auto_schedule: true,
+        max_sends_per_day: maxSendsPerDay,
+        business_hours_start: 0,
+        business_hours_end: 23,
+        business_days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+      }).eq("id", campaign.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["campaigns"] });
+      toast({ title: "Campaign sending now!", description: "Emails will start going out within 1 minute." });
+    },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const retryFailedMut = useMutation({
+    mutationFn: async () => {
+      const failedRecipients = recipients.filter(r => r.status === "failed");
+      if (failedRecipients.length === 0) throw new Error("No failed recipients to retry");
+      const failedIds = failedRecipients.map(r => r.id);
+      const { error } = await supabase.from("campaign_recipients")
+        .update({ status: "pending", last_error: null })
+        .in("id", failedIds);
+      if (error) throw error;
+
+      // If campaign is sent/paused, set back to scheduled so the queue picks it up
+      if (["sent", "paused", "draft"].includes(campaign.status)) {
+        await supabase.from("campaigns").update({
+          status: "scheduled",
+          scheduled_at: new Date().toISOString(),
+        }).eq("id", campaign.id);
+      }
+      return failedRecipients.length;
+    },
+    onSuccess: (count) => {
+      refetchRecipients();
+      queryClient.invalidateQueries({ queryKey: ["campaigns"] });
+      toast({ title: `Retrying ${count} failed recipient(s)`, description: "They'll be picked up within 1 minute." });
+    },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   const handleConfirmSchedule = () => {
     updateStatusMut.mutate({
       status: "scheduled",
