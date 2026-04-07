@@ -952,6 +952,27 @@ export default function Patients() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Bulk Delete Confirmation */}
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selected.size} Contacts</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove {selected.size} contacts from your pipeline. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => bulkDeleteMutation.mutate(Array.from(selected))}
+            >
+              {bulkDeleteMutation.isPending ? "Deleting…" : `Delete ${selected.size} Contacts`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Bulk Import */}
       <BulkImportDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>

@@ -95,6 +95,7 @@ interface Props {
 }
 
 type Step = "upload" | "map" | "preview" | "importing" | "done";
+type ContactType = "lead" | "client";
 
 interface ParsedRow {
   [key: string]: string;
@@ -112,6 +113,7 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
   const [progress, setProgress]   = useState(0);
   const [summary, setSummary]     = useState({ inserted: 0, skipped: 0, errors: 0 });
   const [errorRows, setErrorRows] = useState<string[]>([]);
+  const [contactType, setContactType] = useState<ContactType>("lead");
 
   // ─── Reset on close ────────────────────────────────────────────────────────
   const handleClose = () => {
@@ -122,6 +124,7 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
     setProgress(0);
     setSummary({ inserted: 0, skipped: 0, errors: 0 });
     setErrorRows([]);
+    setContactType("lead");
     onOpenChange(false);
   };
 
@@ -184,9 +187,8 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
     const hasName  = rec.first_name || rec.last_name;
     if (!hasEmail && !hasName) return null;
 
-    // Default required field
-    if (!rec.status) rec.status = "lead";
-    if (!rec.pipeline_stage) rec.pipeline_stage = "new_lead";
+    // Default required field — use selected contact type
+    if (!rec.status) rec.status = contactType;
 
     return rec;
   }
