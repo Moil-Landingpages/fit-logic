@@ -821,7 +821,15 @@ export default function Patients() {
               </TableHeader>
               <TableBody>
                 {filtered.map((p) => (
-                  <TableRow key={p.id} className="cursor-pointer group" onClick={() => setViewing(p)}>
+                  <TableRow key={p.id} className={`cursor-pointer group ${selected.has(p.id) ? "bg-primary/5" : ""}`} onClick={() => setViewing(p)}>
+                    <TableCell onClick={(e) => { e.stopPropagation(); toggleSelect(p.id); }}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(p.id)}
+                        onChange={() => toggleSelect(p.id)}
+                        className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                      />
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-9 w-9 text-xs shadow-sm">
@@ -841,12 +849,18 @@ export default function Patients() {
                       <div className="text-muted-foreground">{p.email || "—"}</div>
                       {p.phone && <div className="text-[11px] text-muted-foreground/70">{p.phone}</div>}
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{p.insurance_provider || "—"}</TableCell>
                     <TableCell><StatusPill status={p.status} /></TableCell>
-                    <TableCell className="text-sm font-medium font-heading">
-                      {p.gender || "—"}
+                    <TableCell><StatusPill status={p.status} /></TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {(p.tags || []).slice(0, 2).map((tag) => (
+                          <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0">{tag}</Badge>
+                        ))}
+                        {(p.tags || []).length > 2 && (
+                          <span className="text-[10px] text-muted-foreground">+{(p.tags || []).length - 2}</span>
+                        )}
+                      </div>
                     </TableCell>
-                    <TableCell><StatusPill status={p.status} /></TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
