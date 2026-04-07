@@ -404,13 +404,13 @@ function IntegrationsTab({
   const isGoogleGmailConnected = !!settings.google_gmail_token;
 
   const handleGoogleConnect = () => {
-    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-    if (!clientId) {
-      toast.error("Google Client ID not configured. Set VITE_GOOGLE_CLIENT_ID in your environment.");
-      return;
-    }
+    const clientId = "435907511578-v2n4hf6f2l65g6cv3m97mvcpc58p00o5.apps.googleusercontent.com";
     const redirectUri = `${window.location.origin}/settings?tab=integrations`;
-    const scope = encodeURIComponent("https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.send");
+    const scope = encodeURIComponent(
+      "https://www.googleapis.com/auth/calendar.readonly " +
+      "https://www.googleapis.com/auth/gmail.send " +
+      "https://www.googleapis.com/auth/gmail.readonly"
+    );
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`;
     window.location.href = authUrl;
   };
@@ -439,11 +439,7 @@ function IntegrationsTab({
           </CardTitle>
           <CardDescription className="text-xs">
             Connect Google Calendar for scheduling and Gmail for email sending.
-            {!import.meta.env.VITE_GOOGLE_CLIENT_ID && (
-              <span className="block mt-1 text-amber-600">
-                ⚠ Set VITE_GOOGLE_CLIENT_ID in your environment to enable Google OAuth.
-              </span>
-            )}
+            
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
