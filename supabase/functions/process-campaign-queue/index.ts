@@ -123,9 +123,9 @@ serve(async (req) => {
 
     const emailProvider  = settings?.email_provider ?? "resend";
 
-    // Try vault first; fall back to plain column (pre-vault installs)
-    let emailApiKey: string = settings?.email_provider_api_key ?? "";
-    if (settings?.email_api_key_secret_id) {
+    // Try secrets first (RESEND_API_KEY env), then vault, then plain column
+    let emailApiKey: string = Deno.env.get("RESEND_API_KEY") ?? settings?.email_provider_api_key ?? "";
+    if (!emailApiKey && settings?.email_api_key_secret_id) {
       const { data: vaultRow } = await supabase.rpc("get_email_api_key");
       if (vaultRow) emailApiKey = vaultRow as string;
     }
@@ -359,7 +359,6 @@ serve(async (req) => {
           step_number:  stepNumber,
           status:       "queued",
           tracking_id:  trackingId,
-          provider:     emailProvider,
         });
 
         // ── Attempt delivery ──────────────────────────────────────────────
@@ -376,9 +375,8 @@ serve(async (req) => {
         if (sendResult.success) {
           await supabase.from("campaign_send_log")
             .update({
-              status:              "sent",
-              sent_at:             now.toISOString(),
-              provider_message_id: sendResult.messageId ?? null,
+              status:  "sent",
+              sent_at: now.toISOString(),
             })
             .eq("tracking_id", trackingId);
 
