@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import type { TablesUpdate } from "@/integrations/supabase/types";
 import { toast } from "sonner";
 import {
   QUESTION_TYPE_CONFIG, SUBMISSION_STATUS_CONFIG, REVIEW_STATUS_CONFIG,
