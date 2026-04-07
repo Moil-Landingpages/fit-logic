@@ -768,6 +768,19 @@ export default function Patients() {
         )}
       </div>
 
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border bg-card p-3 shadow-card">
+          <span className="text-sm font-medium">{selected.size} selected</span>
+          <Button variant="destructive" size="sm" onClick={() => setBulkDeleteOpen(true)}>
+            <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete Selected
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+            <X className="h-3.5 w-3.5 mr-1" /> Clear
+          </Button>
+        </div>
+      )}
+
       {/* Table */}
       <Card className="shadow-card overflow-hidden">
         <CardContent className="p-0">
@@ -790,12 +803,19 @@ export default function Patients() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30">
+                  <TableHead className="w-10">
+                    <input
+                      type="checkbox"
+                      checked={selected.size === filtered.length && filtered.length > 0}
+                      onChange={toggleSelectAll}
+                      className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                    />
+                  </TableHead>
                   <TableHead className="font-medium">Contact</TableHead>
                   <TableHead className="font-medium">Email</TableHead>
-                  <TableHead className="font-medium">Company</TableHead>
-                  <TableHead className="font-medium">Lead Source</TableHead>
-                  <TableHead className="font-medium">Deal Value</TableHead>
+                  <TableHead className="font-medium">Type</TableHead>
                   <TableHead className="font-medium">Status</TableHead>
+                  <TableHead className="font-medium">Tags</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
