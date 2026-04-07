@@ -325,6 +325,27 @@ export type Database = {
           },
         ]
       }
+      email_suppressions: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          reason: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          reason?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          reason?: string | null
+        }
+        Relationships: []
+      }
       email_templates: {
         Row: {
           body_html: string | null
@@ -642,6 +663,74 @@ export type Database = {
           zip_code?: string | null
         }
         Relationships: []
+      }
+      practice_settings: {
+        Row: {
+          business_days: string[]
+          business_hours_end: number
+          business_hours_start: number
+          created_at: string
+          email_api_key_secret_id: string | null
+          email_from_address: string | null
+          email_from_name: string | null
+          email_provider: string
+          email_provider_api_key: string | null
+          escalation_staff_id: string | null
+          google_calendar_token: Json | null
+          google_gmail_token: Json | null
+          id: string
+          max_sends_per_day: number
+          practice_name: string
+          timezone: string
+          updated_at: string
+        }
+        Insert: {
+          business_days?: string[]
+          business_hours_end?: number
+          business_hours_start?: number
+          created_at?: string
+          email_api_key_secret_id?: string | null
+          email_from_address?: string | null
+          email_from_name?: string | null
+          email_provider?: string
+          email_provider_api_key?: string | null
+          escalation_staff_id?: string | null
+          google_calendar_token?: Json | null
+          google_gmail_token?: Json | null
+          id?: string
+          max_sends_per_day?: number
+          practice_name?: string
+          timezone?: string
+          updated_at?: string
+        }
+        Update: {
+          business_days?: string[]
+          business_hours_end?: number
+          business_hours_start?: number
+          created_at?: string
+          email_api_key_secret_id?: string | null
+          email_from_address?: string | null
+          email_from_name?: string | null
+          email_provider?: string
+          email_provider_api_key?: string | null
+          escalation_staff_id?: string | null
+          google_calendar_token?: Json | null
+          google_gmail_token?: Json | null
+          id?: string
+          max_sends_per_day?: number
+          practice_name?: string
+          timezone?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "practice_settings_escalation_staff_id_fkey"
+            columns: ["escalation_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       referrals: {
         Row: {
