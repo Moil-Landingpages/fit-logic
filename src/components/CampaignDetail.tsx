@@ -5,7 +5,7 @@ import type { TablesUpdate } from "@/integrations/supabase/types";
 import {
   ArrowLeft, Pencil, Clock, Pause, Play, Send, Eye, Users,
   ChevronDown, ChevronUp, Mail, Layers, UserPlus, Calendar,
-  CalendarClock, Shield, X, MousePointerClick, Activity
+  CalendarClock, Shield, X, MousePointerClick, Activity, RotateCcw, Zap
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -155,6 +155,53 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const sendNowMut = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("campaigns").update({
+        status: "scheduled",
+        scheduled_at: new Date().toISOString(),
+        auto_schedule: true,
+        max_sends_per_day: maxSendsPerDay,
+        business_hours_start: 0,
+        business_hours_end: 23,
+        business_days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+      }).eq("id", campaign.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["campaigns"] });
+      toast({ title: "Campaign sending now!", description: "Emails will start going out within 1 minute." });
+    },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const retryFailedMut = useMutation({
+    mutationFn: async () => {
+      const failedRecipients = recipients.filter(r => r.status === "failed");
+      if (failedRecipients.length === 0) throw new Error("No failed recipients to retry");
+      const failedIds = failedRecipients.map(r => r.id);
+      const { error } = await supabase.from("campaign_recipients")
+        .update({ status: "pending", last_error: null })
+        .in("id", failedIds);
+      if (error) throw error;
+
+      // If campaign is sent/paused, set back to scheduled so the queue picks it up
+      if (["sent", "paused", "draft"].includes(campaign.status)) {
+        await supabase.from("campaigns").update({
+          status: "scheduled",
+          scheduled_at: new Date().toISOString(),
+        }).eq("id", campaign.id);
+      }
+      return failedRecipients.length;
+    },
+    onSuccess: (count) => {
+      refetchRecipients();
+      queryClient.invalidateQueries({ queryKey: ["campaigns"] });
+      toast({ title: `Retrying ${count} failed recipient(s)`, description: "They'll be picked up within 1 minute." });
+    },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   const handleConfirmSchedule = () => {
     updateStatusMut.mutate({
       status: "scheduled",
@@ -170,6 +217,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
   };
 
   const sentRecipients = recipients.filter(r => r.status !== "pending");
+  const failedRecipients = recipients.filter(r => r.status === "failed");
   const pendingRecipients = recipients.filter(r => r.status === "pending");
   const totalDays = sequences.reduce((sum: number, s: any) => sum + (s.delay_days || 0), 0);
   const estimatedSendDays = maxSendsPerDay > 0 ? Math.ceil(recipients.length / maxSendsPerDay) : 0;
@@ -202,6 +250,11 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
           {campaign.status === "draft" && (
             <>
               <Button variant="outline" size="sm" onClick={() => onEdit(campaign)}><Pencil className="h-3.5 w-3.5 mr-1" />Edit</Button>
+              <Button variant="outline" size="sm"
+                onClick={() => sendNowMut.mutate()}
+                disabled={recipients.length === 0 || sendNowMut.isPending}>
+                <Zap className="h-3.5 w-3.5 mr-1" />{sendNowMut.isPending ? "Sending..." : "Send Now"}
+              </Button>
               <Button size="sm" className="gradient-brand text-primary-foreground"
                 onClick={() => setShowSchedulePanel(true)} disabled={recipients.length === 0}>
                 <CalendarClock className="h-3.5 w-3.5 mr-1" />Schedule
@@ -217,9 +270,30 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
             </Button>
           )}
           {campaign.status === "paused" && (
-            <Button size="sm" className="gradient-brand text-primary-foreground"
-              onClick={() => setShowSchedulePanel(true)}>
-              <Play className="h-3.5 w-3.5 mr-1" />Resume
+            <>
+              <Button size="sm" className="gradient-brand text-primary-foreground"
+                onClick={() => setShowSchedulePanel(true)}>
+                <Play className="h-3.5 w-3.5 mr-1" />Resume
+              </Button>
+              <Button variant="outline" size="sm"
+                onClick={() => sendNowMut.mutate()}
+                disabled={sendNowMut.isPending}>
+                <Zap className="h-3.5 w-3.5 mr-1" />Send Now
+              </Button>
+            </>
+          )}
+          {(campaign.status === "sent" || campaign.status === "sending") && failedRecipients.length > 0 && (
+            <Button variant="outline" size="sm"
+              onClick={() => retryFailedMut.mutate()}
+              disabled={retryFailedMut.isPending}>
+              <RotateCcw className="h-3.5 w-3.5 mr-1" />{retryFailedMut.isPending ? "Retrying..." : `Retry ${failedRecipients.length} Failed`}
+            </Button>
+          )}
+          {failedRecipients.length > 0 && !["sent", "sending"].includes(campaign.status) && (
+            <Button variant="outline" size="sm" className="text-destructive border-destructive/30 hover:bg-destructive/5"
+              onClick={() => retryFailedMut.mutate()}
+              disabled={retryFailedMut.isPending}>
+              <RotateCcw className="h-3.5 w-3.5 mr-1" />Retry {failedRecipients.length} Failed
             </Button>
           )}
         </div>
