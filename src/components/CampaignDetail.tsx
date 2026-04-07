@@ -112,7 +112,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
   });
 
   const updateStatusMut = useMutation({
-    mutationFn: async (upd: Record<string, any>) => {
+    mutationFn: async (upd: TablesUpdate<"campaigns">) => {
       const { error } = await supabase.from("campaigns").update(upd).eq("id", campaign.id);
       if (error) throw error;
     },

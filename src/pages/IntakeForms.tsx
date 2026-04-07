@@ -355,7 +355,7 @@ const IntakeForms = () => {
   });
 
   const updateSubmissionMut = useMutation({
-    mutationFn: async ({ id, updates }: { id: string; updates: Record<string, any> }) => {
+    mutationFn: async ({ id, updates }: { id: string; updates: TablesUpdate<"intake_submissions"> }) => {
       const { error } = await supabase.from("intake_submissions").update(updates).eq("id", id);
       if (error) throw error;
     },
