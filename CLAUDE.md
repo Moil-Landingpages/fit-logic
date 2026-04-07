@@ -16,90 +16,122 @@ npm run preview      # Preview production build locally
 
 ## Architecture Overview
 
-**FitLogic Sales Engine** is a React 18 + TypeScript SPA (Vite) for healthcare CRM and marketing automation — contacts, email campaigns, inquiry management, intake forms, analytics, and referral tracking.
+**FitLogic Sales Engine** is a React 18 + TypeScript SPA (Vite) for healthcare CRM and marketing automation — contacts, pipeline kanban, email campaigns, inquiry management, intake forms, analytics, and referral tracking.
 
 ### Stack
 
-- **Frontend:** React 18, TypeScript, Vite, Tailwind CSS, shadcn-ui (Radix UI primitives), Lucide icons
+- **Frontend:** React 18, TypeScript, Vite, Tailwind CSS, shadcn-ui (Radix UI primitives), Lucide icons, Recharts
 - **Backend:** Supabase (PostgreSQL + Auth + Edge Functions)
-- **Data Fetching:** TanStack React Query v5 — all queries use `useQuery`/`useMutation`; no Redux or context-based state for server data
+- **Deployment:** Lovable Cloud (lovable.dev) — project auto-deploys on push to `main`
+- **Data Fetching:** TanStack React Query v5 — all queries use `useQuery`/`useMutation`
 - **Forms:** react-hook-form + Zod validation
-- **Routing:** React Router v6 with a `<Layout>` wrapper around all routes
+- **Routing:** React Router v6 — `/login` is public, all other routes protected via `ProtectedRoute`
 - **Charts:** Recharts
 
 ### Path Alias
 
 `@/*` maps to `src/*` (configured in `vite.config.ts` and `tsconfig.json`).
 
+### Auth Flow
+
+- `src/contexts/AuthContext.tsx` — wraps `supabase.auth` with session state; exposes `useAuth()`
+- `src/components/ProtectedRoute.tsx` — redirects to `/login` when no session
+- `src/pages/Login.tsx` — email/password sign-in + forgot-password reset
+- Users are created in the Supabase dashboard (Authentication → Users); there is no self-registration UI
+
 ### Supabase Integration
 
 - Client: `src/integrations/supabase/client.ts`
-- Auto-generated schema types: `src/integrations/supabase/types.ts` — do not hand-edit
-- All tables have RLS enabled with currently-public policies; auth is scaffolded but not yet enforced
-- Edge Functions (Deno): `supabase/functions/` — handles AI campaign generation, inquiry classification, FAQ answering, email tracking, campaign queue processing, and unsubscribe handling
+- Auto-generated schema types: `src/integrations/supabase/types.ts` — **do not hand-edit**
+- All tables have RLS enforced with `auth.role() = 'authenticated'` (migration `20260407000001`)
+- Exception: `intake_submissions` allows public INSERT for embedded forms
+- Edge Functions (Deno): `supabase/functions/` — all use `SUPABASE_SERVICE_ROLE_KEY` which bypasses RLS
 
-### Key Tables
+### Query Key Convention
 
-| Table | Purpose |
-|---|---|
-| `patients` | Contacts/prospects with HIPAA audit trail |
-| `campaigns` / `campaign_sequences` | Email campaigns and multi-step sequences |
-| `campaign_recipients` / `campaign_send_log` | Distribution and delivery tracking |
-| `segments` | Rule-based patient segmentation |
-| `inquiries` | Customer support tickets |
-| `intake_forms` / `intake_submissions` | Dynamic form builder and responses |
-| `faqs` | FAQ library with AI classification |
-| `referrals` | Referral conversion tracking |
-| `audit_log` | HIPAA compliance logging (triggers on `patients`) |
+All React Query keys live in `src/lib/queryKeys.ts` as the `QK` constant. Always use these instead of inline arrays so `invalidateQueries` hits the right cache entries.
 
-### Core Source Layout
-
+```typescript
+import { QK } from "@/lib/queryKeys";
+queryClient.invalidateQueries({ queryKey: QK.patients });
+queryClient.invalidateQueries({ queryKey: QK.campaignRecipients(campaignId) });
 ```
-src/
-├── pages/          # 11 route-level page components
-├── components/     # Reusable components + ui/ (shadcn-ui)
-├── hooks/          # use-toast, use-mobile
-├── lib/
-│   ├── types.ts       # Shared TS interfaces and status/category configs
-│   ├── utils.ts       # cn() classname utility
-│   ├── mock-data.ts   # Dev sample data
-│   ├── campaign-data.ts
-│   └── intake-data.ts
-└── integrations/supabase/
-```
-
-### Heaviest Files (most logic)
-
-- `src/pages/Campaigns.tsx` (~36 KB) — full campaign CRUD, sequencing, scheduling
-- `src/pages/Patients.tsx` (~35 KB) — contact list, filtering, profiles
-- `src/components/CampaignDetail.tsx` (~27 KB)
-- `src/components/AISequenceWizard.tsx` (~21 KB)
 
 ### Data Fetching Pattern
 
 ```typescript
 const { data: contacts = [] } = useQuery({
-  queryKey: ["patients"],
+  queryKey: QK.patients,
   queryFn: async () => {
-    const { data } = await supabase.from("patients").select("*");
-    return data || [];
+    const { data, error } = await supabase.from("patients").select("*").order("created_at", { ascending: false });
+    if (error) throw error;
+    return data;
   },
 });
 ```
 
-Mutations call `queryClient.invalidateQueries({ queryKey: ["patients"] })` to sync UI after writes.
+Mutations call `queryClient.invalidateQueries(...)` on success to sync the UI.
 
-### Active Issues to Address
+### Key Tables
 
-1. **Pipeline screen** (`src/pages/Index.tsx`) — needs to load real deal/contact data from Supabase and function as a true pipeline visualizer; currently not wired to live data
-2. **Cross-entity sync** — changes to a client profile must reflect immediately in pipeline, campaigns, and anywhere else that contact appears; currently there is no shared invalidation strategy across query keys
-3. **Google/integrations** — integration connection flow is incomplete/broken
-4. **Contact filtering** — filter and sort controls in `Patients.tsx` need verification and fixes
-5. **Incomplete functionalities** — review components for stub handlers, TODO comments, and missing edge-case logic throughout
+| Table | Purpose |
+|---|---|
+| `patients` | Contacts/prospects — pipeline_stage, lead_source, company, deal_value, HIPAA audit trail |
+| `practice_settings` | Singleton config row — email provider, timezone, business hours, Google tokens |
+| `campaigns` / `campaign_sequences` | Email campaigns and multi-step sequences |
+| `campaign_recipients` / `campaign_send_log` | Distribution and per-send delivery tracking |
+| `email_suppressions` | Hard bounce / complaint suppression list (checked before every send) |
+| `segments` | Rule-based contact segmentation |
+| `inquiries` | Support tickets with AI classification |
+| `intake_forms` / `intake_submissions` | Dynamic form builder and responses |
+| `faqs` | FAQ library with AI-powered auto-response |
+| `referrals` | Referral conversion tracking |
+| `staff` | Staff accounts; escalation_staff_id FK in practice_settings |
+| `audit_log` | HIPAA compliance log (trigger on patients) |
+
+### Edge Functions
+
+| Function | Purpose | Key Secrets Needed |
+|---|---|---|
+| `process-campaign-queue` | Sends queued emails via Resend or SendGrid; enforces business hours, suppression list, daily limits | `SUPABASE_SERVICE_ROLE_KEY` |
+| `email-webhook` | Receives bounce/open/click/complaint webhooks from Resend & SendGrid | `SUPABASE_SERVICE_ROLE_KEY` |
+| `track-email` | Serves 1×1 tracking pixel (open) and handles click redirects | `SUPABASE_SERVICE_ROLE_KEY` |
+| `campaign-unsubscribe` | One-click unsubscribe handler | `SUPABASE_SERVICE_ROLE_KEY` |
+| `classify-inquiry` | AI inquiry classification + sends auto-response emails on FAQ match | `LOVABLE_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY` |
+| `generate-campaign` | AI-generates multi-step email sequences | `LOVABLE_API_KEY` |
+| `generate-faq-answer` | AI-generates FAQ answers | `LOVABLE_API_KEY` |
+| `google-oauth-callback` | Exchanges Google OAuth code for tokens; stores in practice_settings | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` |
+
+Email provider API key is stored in `practice_settings.email_provider_api_key` with optional Supabase Vault encryption via `get_email_api_key()` DB function (migration `20260407000002`).
+
+### Heaviest Files
+
+- `src/pages/Patients.tsx` (~912 lines) — contact list, filters (stage/source/status/search), sort, profile detail, bulk import trigger, paginated loading (500/page)
+- `src/pages/Settings.tsx` (~760 lines) — practice config, staff CRUD, Google OAuth connect, email provider setup
+- `src/pages/Campaigns.tsx` (~700 lines) — campaign CRUD, AI wizard, scheduling, duplicate, segment assignment
+- `src/components/CampaignDetail.tsx` (~535 lines) — per-campaign detail with recipients, sequences, activity log
+- `src/pages/Index.tsx` (~484 lines) — kanban pipeline board with drag-and-drop stage updates
+- `src/components/AISequenceWizard.tsx` (~464 lines) — AI-powered multi-step email sequence builder
+- `src/pages/Analytics.tsx` (~460 lines) — pipeline funnel, email engagement, inquiry stats (3 tabs, all live data)
+- `src/components/CampaignRecipients.tsx` (~456 lines) — recipient picker: Customers tab, Segments tab (with client-side rule evaluator), CSV tab, Manual tab
+- `src/components/BulkImportDialog.tsx` (~408 lines) — papaparse CSV import with column mapping, chunked upsert, progress
 
 ### Fonts & Theme
 
-- Heading font: Space Grotesk
+- Heading font: Space Grotesk (`font-heading`)
 - Body font: DM Sans
 - Dark mode via `class` strategy on `<html>`
-- Custom Tailwind colors for sidebar, category badges, and status groups defined in `tailwind.config.ts`
+- Custom Tailwind colors for sidebar, category badges, and status groups in `tailwind.config.ts`
+
+### Environment Variables
+
+**Frontend (`.env`, Vite-exposed):**
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+- `VITE_SUPABASE_PROJECT_ID`
+- `VITE_GOOGLE_CLIENT_ID` — optional; controls Google OAuth button in Settings
+
+**Supabase Edge Function Secrets (set in Supabase dashboard):**
+- `LOVABLE_API_KEY` — Lovable AI API for campaign/FAQ/inquiry generation
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — Google OAuth token exchange
+- Email provider keys stored in `practice_settings` table (not env vars)
