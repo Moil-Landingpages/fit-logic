@@ -285,6 +285,30 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
             <p className="text-sm text-muted-foreground">
               {rows.length.toLocaleString()} rows detected. Map your CSV columns to contact fields.
             </p>
+
+            {/* Contact type selector */}
+            <div className="flex items-center gap-3 rounded-md border bg-muted/30 p-3">
+              <span className="text-sm font-medium">Import as:</span>
+              <div className="flex items-center bg-card border rounded-lg p-0.5">
+                {([{ key: "lead", label: "Leads" }, { key: "client", label: "Clients" }] as const).map((t) => (
+                  <button
+                    key={t.key}
+                    onClick={() => setContactType(t.key)}
+                    className={`px-4 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                      contactType === t.key
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs text-muted-foreground">
+                All imported contacts will be tagged as {contactType === "lead" ? "leads" : "clients"}
+              </span>
+            </div>
+
             {!emailMapped && (
               <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-3 text-sm text-amber-800 dark:text-amber-300">
                 <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
