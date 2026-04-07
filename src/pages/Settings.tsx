@@ -400,6 +400,31 @@ function IntegrationsTab({
     email_from_name: settings.email_from_name ?? "",
   });
 
+  const [testEmailTo, setTestEmailTo] = useState("");
+  const [testSending, setTestSending] = useState(false);
+
+  const handleSendTestEmail = async () => {
+    const target = testEmailTo.trim();
+    if (!target) return;
+    setTestSending(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("process-campaign-queue", {
+        body: { test_to: target },
+      });
+      if (error) {
+        toast.error(`Test failed: ${error.message}`);
+      } else if (data?.success === false) {
+        toast.error(`Test failed: ${data.error ?? "Unknown error"}`);
+      } else {
+        toast.success("Test email sent — check your inbox!");
+      }
+    } catch (e) {
+      toast.error("Could not reach the email function. Check Supabase edge function logs.");
+    } finally {
+      setTestSending(false);
+    }
+  };
+
   const isGoogleCalendarConnected = !!settings.google_calendar_token;
   const isGoogleGmailConnected = !!settings.google_gmail_token;
 
@@ -567,6 +592,20 @@ function IntegrationsTab({
             </div>
           )}
 
+          {emailForm.email_from_address && emailForm.email_provider === "resend" && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800">
+              <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                The domain <strong>{emailForm.email_from_address.split("@")[1] ?? emailForm.email_from_address}</strong> must
+                be verified in your{" "}
+                <a href="https://resend.com/domains" target="_blank" rel="noreferrer" className="underline font-medium">
+                  Resend dashboard
+                </a>
+                . If you verified a different domain (e.g. <em>myfitlogic.com</em>), your From Email must use that same domain.
+              </span>
+            </div>
+          )}
+
           <div className="flex justify-end">
             <Button
               onClick={() => onSave({
@@ -579,6 +618,37 @@ function IntegrationsTab({
             >
               <Save className="h-3.5 w-3.5" /> Save Email Settings
             </Button>
+          </div>
+
+          {/* ── Test Email ─────────────────────────────────────────────────── */}
+          <div className="pt-2 border-t">
+            <p className="text-xs font-medium text-foreground mb-2">Send a test email</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              Verify your API key, from address, and domain are all correct before sending a real campaign.
+              Save your settings above first.
+            </p>
+            <div className="flex gap-2 max-w-sm">
+              <Input
+                type="email"
+                value={testEmailTo}
+                onChange={(e) => setTestEmailTo(e.target.value)}
+                placeholder="your@email.com"
+                className="h-9 text-sm"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSendTestEmail}
+                disabled={testSending || !testEmailTo.trim()}
+                className="shrink-0"
+              >
+                {testSending ? (
+                  <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />Sending…</>
+                ) : (
+                  <><Mail className="h-3.5 w-3.5 mr-1" />Send Test</>
+                )}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

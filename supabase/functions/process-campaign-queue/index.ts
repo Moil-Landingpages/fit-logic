@@ -113,6 +113,10 @@ serve(async (req) => {
   const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase    = createClient(supabaseUrl, serviceKey);
 
+  // Parse optional body for test-send mode
+  let reqBody: Record<string, unknown> = {};
+  try { reqBody = req.method === "POST" ? await req.json() : {}; } catch { /* empty body */ }
+
   try {
     // ── Load practice settings (email provider, from address, timezone) ───
     const { data: settings } = await supabase
@@ -123,12 +127,15 @@ serve(async (req) => {
 
     const emailProvider  = settings?.email_provider ?? "resend";
 
-    // Try secrets first (RESEND_API_KEY env), then vault, then plain column
-    let emailApiKey: string = Deno.env.get("RESEND_API_KEY") ?? settings?.email_provider_api_key ?? "";
+    // Settings column is the canonical source; env var is a local-dev fallback only.
+    // Vault (email_api_key_secret_id) is the encrypted option for production.
+    let emailApiKey: string = settings?.email_provider_api_key ?? "";
     if (!emailApiKey && settings?.email_api_key_secret_id) {
       const { data: vaultRow } = await supabase.rpc("get_email_api_key");
       if (vaultRow) emailApiKey = vaultRow as string;
     }
+    if (!emailApiKey) emailApiKey = Deno.env.get("RESEND_API_KEY") ?? "";
+
     const fromAddress    = settings?.email_from_address ?? "";
     const fromName       = settings?.email_from_name ?? "FitLogic";
     const practiceTimezone = settings?.timezone ?? "America/New_York";
@@ -139,6 +146,28 @@ serve(async (req) => {
     }
 
     const fromHeader = fromName ? `${fromName} <${fromAddress}>` : fromAddress;
+
+    // ── Test-send mode ────────────────────────────────────────────────────────
+    // Called from Settings UI to verify email config before any real campaign.
+    if (reqBody.test_to) {
+      if (!emailApiKey)  return json({ success: false, error: "No API key configured in Settings → Email Delivery Provider." });
+      if (!fromAddress)  return json({ success: false, error: "No From Email configured in Settings → Email Delivery Provider." });
+      const testResult = await sendEmail(emailProvider, emailApiKey, {
+        to:                 reqBody.test_to as string,
+        toName:             null,
+        subject:            "FitLogic – Email Configuration Test",
+        html:               `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
+<h2 style="margin:0 0 12px">Email is working!</h2>
+<p style="color:#374151">Your FitLogic email integration is configured correctly.</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
+<p style="color:#6b7280;font-size:12px">Provider: <strong>${emailProvider}</strong> &nbsp;|&nbsp; From: <strong>${fromHeader}</strong></p>
+</div>`,
+        from:               fromHeader,
+        listUnsubscribeUrl: "",
+        trackingId:         crypto.randomUUID(),
+      });
+      return json(testResult);
+    }
 
     // ── Determine current time in practice timezone ────────────────────────
     const now = new Date();

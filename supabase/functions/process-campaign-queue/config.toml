@@ -1,0 +1,3 @@
+# Disable JWT verification so pg_cron can invoke this function without an auth header.
+# The function creates its own service-role client internally — it does not trust the caller.
+verify_jwt = false

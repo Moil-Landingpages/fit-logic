@@ -167,10 +167,13 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
         business_days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
       }).eq("id", campaign.id);
       if (error) throw error;
+      // Trigger the queue immediately — don't wait for cron
+      const { error: fnError } = await supabase.functions.invoke("process-campaign-queue");
+      if (fnError) console.error("Queue trigger error (non-fatal):", fnError);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["campaigns"] });
-      toast({ title: "Campaign sending now!", description: "Emails will start going out within 1 minute." });
+      toast({ title: "Campaign sending now!", description: "Emails are being sent." });
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -192,12 +195,15 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
           scheduled_at: new Date().toISOString(),
         }).eq("id", campaign.id);
       }
+      // Trigger the queue immediately
+      const { error: fnError } = await supabase.functions.invoke("process-campaign-queue");
+      if (fnError) console.error("Queue trigger error (non-fatal):", fnError);
       return failedRecipients.length;
     },
     onSuccess: (count) => {
       refetchRecipients();
       queryClient.invalidateQueries({ queryKey: ["campaigns"] });
-      toast({ title: `Retrying ${count} failed recipient(s)`, description: "They'll be picked up within 1 minute." });
+      toast({ title: `Retrying ${count} failed recipient(s)` });
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
