@@ -32,10 +32,6 @@ const DB_FIELDS = [
   { value: "email",          label: "Email" },
   { value: "phone",          label: "Phone" },
   { value: "date_of_birth",  label: "Date of birth" },
-  { value: "company",        label: "Company / Practice" },
-  { value: "deal_value",     label: "Deal value ($)" },
-  { value: "lead_source",    label: "Lead source" },
-  { value: "pipeline_stage", label: "Pipeline stage" },
   { value: "status",         label: "Status" },
   { value: "address",        label: "Address" },
   { value: "city",           label: "City" },
@@ -65,16 +61,6 @@ const AUTO_MAP: Record<string, DbField> = {
   dob:          "date_of_birth",
   "date of birth": "date_of_birth",
   birthday:     "date_of_birth",
-  company:      "company",
-  organization: "company",
-  practice:     "company",
-  "deal value": "deal_value",
-  "deal_value": "deal_value",
-  revenue:      "deal_value",
-  source:       "lead_source",
-  "lead source": "lead_source",
-  stage:        "pipeline_stage",
-  "pipeline stage": "pipeline_stage",
   status:       "status",
   address:      "address",
   city:         "city",
@@ -95,6 +81,7 @@ interface Props {
 }
 
 type Step = "upload" | "map" | "preview" | "importing" | "done";
+type ContactType = "lead" | "client";
 
 interface ParsedRow {
   [key: string]: string;
@@ -112,6 +99,7 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
   const [progress, setProgress]   = useState(0);
   const [summary, setSummary]     = useState({ inserted: 0, skipped: 0, errors: 0 });
   const [errorRows, setErrorRows] = useState<string[]>([]);
+  const [contactType, setContactType] = useState<ContactType>("lead");
 
   // ─── Reset on close ────────────────────────────────────────────────────────
   const handleClose = () => {
@@ -122,6 +110,7 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
     setProgress(0);
     setSummary({ inserted: 0, skipped: 0, errors: 0 });
     setErrorRows([]);
+    setContactType("lead");
     onOpenChange(false);
   };
 
@@ -169,11 +158,10 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
       const raw = (csvRow[csvCol] ?? "").trim();
       if (!raw) continue;
 
-      if (dbField === "deal_value") {
-        const n = parseFloat(raw.replace(/[^0-9.]/g, ""));
-        if (!isNaN(n)) rec[dbField] = n;
-      } else if (dbField === "tags") {
+      if (dbField === "tags") {
         rec[dbField] = raw.split(",").map((t) => t.trim()).filter(Boolean);
+      } else if (dbField === "zip") {
+        rec["zip_code"] = raw;
       } else {
         rec[dbField] = raw;
       }
@@ -184,9 +172,8 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
     const hasName  = rec.first_name || rec.last_name;
     if (!hasEmail && !hasName) return null;
 
-    // Default required field
-    if (!rec.status) rec.status = "lead";
-    if (!rec.pipeline_stage) rec.pipeline_stage = "new_lead";
+    // Default required field — use selected contact type
+    if (!rec.status) rec.status = contactType;
 
     return rec;
   }
@@ -222,7 +209,7 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
       if (records.length > 0) {
         const { error } = await supabase
           .from("patients")
-          .upsert(records as Parameters<ReturnType<typeof supabase.from>["upsert"]>[0], {
+          .upsert(records as any, {
             onConflict: "email",
             ignoreDuplicates: false,
           });
@@ -283,6 +270,30 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
             <p className="text-sm text-muted-foreground">
               {rows.length.toLocaleString()} rows detected. Map your CSV columns to contact fields.
             </p>
+
+            {/* Contact type selector */}
+            <div className="flex items-center gap-3 rounded-md border bg-muted/30 p-3">
+              <span className="text-sm font-medium">Import as:</span>
+              <div className="flex items-center bg-card border rounded-lg p-0.5">
+                {([{ key: "lead", label: "Leads" }, { key: "client", label: "Clients" }] as const).map((t) => (
+                  <button
+                    key={t.key}
+                    onClick={() => setContactType(t.key)}
+                    className={`px-4 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                      contactType === t.key
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs text-muted-foreground">
+                All imported contacts will be tagged as {contactType === "lead" ? "leads" : "clients"}
+              </span>
+            </div>
+
             {!emailMapped && (
               <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-3 text-sm text-amber-800 dark:text-amber-300">
                 <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />

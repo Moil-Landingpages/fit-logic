@@ -39,14 +39,13 @@ type Patient = {
   email: string | null;
   phone: string | null;
   date_of_birth: string | null;
-  company: string | null;
-  deal_value: number | null;
-  lead_source: string | null;
-  pipeline_stage: string;
+  gender: string | null;
   address: string | null;
   city: string | null;
   state: string | null;
   zip_code: string | null;
+  insurance_provider: string | null;
+  insurance_id: string | null;
   status: string;
   tags: string[] | null;
   notes: string | null;
@@ -55,9 +54,11 @@ type Patient = {
 };
 
 const STATUS_MAP: Record<string, { label: string; color: string; dot: string }> = {
-  active: { label: "Active Lead", color: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
-  inactive: { label: "Cold", color: "bg-amber-50 text-amber-700 border-amber-200", dot: "bg-amber-500" },
-  archived: { label: "Closed", color: "bg-muted text-muted-foreground border-border", dot: "bg-muted-foreground" },
+  lead:     { label: "Lead",   color: "bg-blue-50 text-blue-700 border-blue-200",     dot: "bg-blue-500" },
+  client:   { label: "Client", color: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
+  active:   { label: "Active", color: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
+  inactive: { label: "Cold",   color: "bg-amber-50 text-amber-700 border-amber-200",  dot: "bg-amber-500" },
+  archived: { label: "Closed", color: "bg-muted text-muted-foreground border-border",  dot: "bg-muted-foreground" },
 };
 
 const LEAD_SOURCE_MAP: Record<string, { label: string; color: string }> = {
@@ -137,6 +138,8 @@ export default function Patients() {
   const [viewing, setViewing] = useState<Patient | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Patient | null>(null);
   const [detailTab, setDetailTab] = useState("overview");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   // Persist filters to sessionStorage
   useEffect(() => {
@@ -207,10 +210,7 @@ export default function Patients() {
     email: form.email || null,
     phone: form.phone || null,
     date_of_birth: form.date_of_birth || null,
-    company: form.company || null,
-    deal_value: form.deal_value ? parseFloat(form.deal_value) : null,
-    lead_source: form.lead_source || null,
-    pipeline_stage: form.pipeline_stage || "new_lead",
+    gender: (form as unknown as Record<string, unknown>).gender as string || null,
     address: form.address || null,
     city: form.city || null,
     state: form.state || null,
@@ -265,8 +265,38 @@ export default function Patients() {
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { error } = await supabase.from("patients").delete().in("id", ids);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QK.patients });
+      setSelected(new Set());
+      setBulkDeleteOpen(false);
+      toast({ title: `${selected.size} contacts deleted` });
+    },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === filtered.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(filtered.map((p) => p.id)));
+    }
+  };
+
   const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: allPatients.length, active: 0, inactive: 0, archived: 0 };
+    const counts: Record<string, number> = { all: allPatients.length, lead: 0, client: 0, active: 0, inactive: 0, archived: 0 };
     allPatients.forEach(p => { counts[p.status] = (counts[p.status] || 0) + 1; });
     return counts;
   }, [allPatients]);
@@ -274,19 +304,18 @@ export default function Patients() {
   const filtered = useMemo(() => {
     let result = allPatients;
     if (statusFilter !== "all") result = result.filter(p => p.status === statusFilter);
-    if (stageFilter !== "all") result = result.filter(p => p.pipeline_stage === stageFilter);
-    if (sourceFilter !== "all") result = result.filter(p => p.lead_source === sourceFilter);
+    if (stageFilter !== "all") result = result.filter(p => p.status === stageFilter);
+    if (sourceFilter !== "all") result = result; // lead_source not in DB yet
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(p =>
         p.first_name.toLowerCase().includes(q) || p.last_name.toLowerCase().includes(q) ||
-        (p.email?.toLowerCase().includes(q) ?? false) || (p.phone?.includes(q) ?? false) ||
-        (p.company?.toLowerCase().includes(q) ?? false)
+        (p.email?.toLowerCase().includes(q) ?? false) || (p.phone?.includes(q) ?? false)
       );
     }
     if (sortBy === "name") result = [...result].sort((a, b) => a.first_name.localeCompare(b.first_name));
-    else if (sortBy === "company") result = [...result].sort((a, b) => (a.company || "").localeCompare(b.company || ""));
-    else if (sortBy === "deal_value") result = [...result].sort((a, b) => (b.deal_value ?? 0) - (a.deal_value ?? 0));
+    else if (sortBy === "company") result = [...result].sort((a, b) => a.first_name.localeCompare(b.first_name));
+    else if (sortBy === "deal_value") result = [...result].sort((a, b) => a.first_name.localeCompare(b.first_name));
     return result;
   }, [patients, statusFilter, stageFilter, sourceFilter, search, sortBy]);
 
@@ -315,12 +344,9 @@ export default function Patients() {
               </h1>
               <div className="flex items-center gap-2">
                 <StatusPill status={p.status} />
-                <LeadSourceBadge source={p.lead_source} />
-                {p.company && (
-                  <span className="text-sm text-muted-foreground flex items-center gap-1">
-                    <Building2 className="h-3.5 w-3.5" /> {p.company}
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                <StatusPill status={p.status} />
+                </div>
               </div>
             </div>
           </div>
@@ -352,10 +378,8 @@ export default function Patients() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Card className="shadow-card">
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-heading font-bold text-foreground">
-                {p.deal_value != null ? `$${p.deal_value.toLocaleString()}` : "—"}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">Deal Value</p>
+              <p className="text-2xl font-heading font-bold text-foreground">{p.status}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Status</p>
             </CardContent>
           </Card>
           <Card className="shadow-card">
@@ -408,8 +432,8 @@ export default function Patients() {
                   </div>
                   <Separator />
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Lead Source</span>
-                    <LeadSourceBadge source={p.lead_source} />
+                    <span className="text-muted-foreground">Status</span>
+                    <StatusPill status={p.status} />
                   </div>
                   <Separator />
                   <div className="flex justify-between">
@@ -433,25 +457,18 @@ export default function Patients() {
               <Card className="shadow-card">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-medium flex items-center gap-2">
-                    <Building2 className="h-4 w-4 text-primary" /> Company & Deal
+                    <Building2 className="h-4 w-4 text-primary" /> Additional Info
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Company</span>
-                    <span className="font-medium">{p.company || "—"}</span>
+                    <span className="text-muted-foreground">Insurance</span>
+                    <span className="font-medium">{p.insurance_provider || "—"}</span>
                   </div>
                   <Separator />
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Deal Value</span>
-                    <span className="font-medium font-heading text-foreground">
-                      {p.deal_value != null ? `$${p.deal_value.toLocaleString()}` : "—"}
-                    </span>
-                  </div>
-                  <Separator />
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Pipeline Stage</span>
-                    <span className="font-medium capitalize">{(p.pipeline_stage || "new_lead").replace("_", " ")}</span>
+                    <span className="text-muted-foreground">Insurance ID</span>
+                    <span className="font-medium">{p.insurance_id || "—"}</span>
                   </div>
                   <Separator />
                   <div className="flex justify-between">
@@ -587,10 +604,6 @@ export default function Patients() {
                 first_name: editing.first_name, last_name: editing.last_name,
                 email: editing.email || "", phone: editing.phone || "",
                 date_of_birth: editing.date_of_birth || "",
-                company: editing.company || "",
-                deal_value: editing.deal_value != null ? String(editing.deal_value) : "",
-                lead_source: editing.lead_source || "",
-                pipeline_stage: editing.pipeline_stage || "new_lead",
                 address: editing.address || "", city: editing.city || "",
                 state: editing.state || "", zip_code: editing.zip_code || "",
                 status: editing.status, tags: (editing.tags || []).join(", "),
@@ -634,6 +647,8 @@ export default function Patients() {
           <div className="flex items-center bg-card border rounded-lg p-0.5 shadow-card">
             {[
               { key: "all", label: "All" },
+              { key: "lead", label: "Leads" },
+              { key: "client", label: "Clients" },
               { key: "active", label: "Active" },
               { key: "inactive", label: "Cold" },
               { key: "archived", label: "Closed" },
@@ -721,7 +736,7 @@ export default function Patients() {
                   <DropdownMenuItem key={key} onClick={() => setStageFilter(key)}>
                     {label}
                     <span className="ml-auto text-muted-foreground text-xs">
-                      {allPatients.filter(p => p.pipeline_stage === key).length}
+                      {allPatients.filter(p => p.status === key).length}
                     </span>
                   </DropdownMenuItem>
                 ))}
@@ -743,7 +758,7 @@ export default function Patients() {
                   <DropdownMenuItem key={key} onClick={() => setSourceFilter(key)}>
                     {cfg.label}
                     <span className="ml-auto text-muted-foreground text-xs">
-                      {allPatients.filter(p => p.lead_source === key).length}
+                      {allPatients.filter(p => p.status === key).length}
                     </span>
                   </DropdownMenuItem>
                 ))}
@@ -752,6 +767,19 @@ export default function Patients() {
           </div>
         )}
       </div>
+
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border bg-card p-3 shadow-card">
+          <span className="text-sm font-medium">{selected.size} selected</span>
+          <Button variant="destructive" size="sm" onClick={() => setBulkDeleteOpen(true)}>
+            <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete Selected
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+            <X className="h-3.5 w-3.5 mr-1" /> Clear
+          </Button>
+        </div>
+      )}
 
       {/* Table */}
       <Card className="shadow-card overflow-hidden">
@@ -775,18 +803,33 @@ export default function Patients() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30">
+                  <TableHead className="w-10">
+                    <input
+                      type="checkbox"
+                      checked={selected.size === filtered.length && filtered.length > 0}
+                      onChange={toggleSelectAll}
+                      className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                    />
+                  </TableHead>
                   <TableHead className="font-medium">Contact</TableHead>
                   <TableHead className="font-medium">Email</TableHead>
-                  <TableHead className="font-medium">Company</TableHead>
-                  <TableHead className="font-medium">Lead Source</TableHead>
-                  <TableHead className="font-medium">Deal Value</TableHead>
+                  <TableHead className="font-medium">Type</TableHead>
                   <TableHead className="font-medium">Status</TableHead>
+                  <TableHead className="font-medium">Tags</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.map((p) => (
-                  <TableRow key={p.id} className="cursor-pointer group" onClick={() => setViewing(p)}>
+                  <TableRow key={p.id} className={`cursor-pointer group ${selected.has(p.id) ? "bg-primary/5" : ""}`} onClick={() => setViewing(p)}>
+                    <TableCell onClick={(e) => { e.stopPropagation(); toggleSelect(p.id); }}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(p.id)}
+                        onChange={() => toggleSelect(p.id)}
+                        className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                      />
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-9 w-9 text-xs shadow-sm">
@@ -806,12 +849,18 @@ export default function Patients() {
                       <div className="text-muted-foreground">{p.email || "—"}</div>
                       {p.phone && <div className="text-[11px] text-muted-foreground/70">{p.phone}</div>}
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{p.company || "—"}</TableCell>
-                    <TableCell><LeadSourceBadge source={p.lead_source} /></TableCell>
-                    <TableCell className="text-sm font-medium font-heading">
-                      {p.deal_value != null ? `$${p.deal_value.toLocaleString()}` : "—"}
-                    </TableCell>
                     <TableCell><StatusPill status={p.status} /></TableCell>
+                    <TableCell><StatusPill status={p.status} /></TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {(p.tags || []).slice(0, 2).map((tag) => (
+                          <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0">{tag}</Badge>
+                        ))}
+                        {(p.tags || []).length > 2 && (
+                          <span className="text-[10px] text-muted-foreground">+{(p.tags || []).length - 2}</span>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -872,11 +921,9 @@ export default function Patients() {
             defaultValues={editing ? {
               first_name: editing.first_name, last_name: editing.last_name,
               email: editing.email || "", phone: editing.phone || "",
-              date_of_birth: editing.date_of_birth || "", gender: editing.gender || "",
+              date_of_birth: editing.date_of_birth || "",
               address: editing.address || "", city: editing.city || "",
               state: editing.state || "", zip_code: editing.zip_code || "",
-              insurance_provider: editing.insurance_provider || "",
-              insurance_id: editing.insurance_id || "",
               status: editing.status, tags: (editing.tags || []).join(", "),
               notes: editing.notes || "",
             } : undefined}
@@ -900,6 +947,27 @@ export default function Patients() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}>
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Confirmation */}
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selected.size} Contacts</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove {selected.size} contacts from your pipeline. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => bulkDeleteMutation.mutate(Array.from(selected))}
+            >
+              {bulkDeleteMutation.isPending ? "Deleting…" : `Delete ${selected.size} Contacts`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -123,9 +123,9 @@ serve(async (req) => {
 
     const emailProvider  = settings?.email_provider ?? "resend";
 
-    // Try vault first; fall back to plain column (pre-vault installs)
-    let emailApiKey: string = settings?.email_provider_api_key ?? "";
-    if (settings?.email_api_key_secret_id) {
+    // Try secrets first (RESEND_API_KEY env), then vault, then plain column
+    let emailApiKey: string = Deno.env.get("RESEND_API_KEY") ?? settings?.email_provider_api_key ?? "";
+    if (!emailApiKey && settings?.email_api_key_secret_id) {
       const { data: vaultRow } = await supabase.rpc("get_email_api_key");
       if (vaultRow) emailApiKey = vaultRow as string;
     }
@@ -359,7 +359,6 @@ serve(async (req) => {
           step_number:  stepNumber,
           status:       "queued",
           tracking_id:  trackingId,
-          provider:     emailProvider,
         });
 
         // ── Attempt delivery ──────────────────────────────────────────────
@@ -376,9 +375,8 @@ serve(async (req) => {
         if (sendResult.success) {
           await supabase.from("campaign_send_log")
             .update({
-              status:              "sent",
-              sent_at:             now.toISOString(),
-              provider_message_id: sendResult.messageId ?? null,
+              status:  "sent",
+              sent_at: now.toISOString(),
             })
             .eq("tracking_id", trackingId);
 
@@ -429,20 +427,19 @@ serve(async (req) => {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function updateCampaignStats(supabase: ReturnType<typeof createClient>, campaignId: string) {
+async function updateCampaignStats(supabase: any, campaignId: string) {
   const { data } = await supabase
     .from("campaign_send_log")
-    .select("status, opened_at, clicked_at, bounce_type, complaint_at")
+    .select("status, opened_at, clicked_at")
     .eq("campaign_id", campaignId);
 
   if (!data) return;
 
   const stats = {
-    sent:       data.filter((r: { status: string }) => r.status === "sent").length,
-    opened:     data.filter((r: { opened_at: string | null }) => r.opened_at).length,
-    clicked:    data.filter((r: { clicked_at: string | null }) => r.clicked_at).length,
-    bounced:    data.filter((r: { bounce_type: string | null }) => r.bounce_type).length,
-    complained: data.filter((r: { complaint_at: string | null }) => r.complaint_at).length,
+    sent:       data.filter((r: any) => r.status === "sent").length,
+    opened:     data.filter((r: any) => r.opened_at).length,
+    clicked:    data.filter((r: any) => r.clicked_at).length,
+    bounced:    data.filter((r: any) => r.status === "bounced").length,
   };
 
   await supabase.from("campaigns").update({ stats }).eq("id", campaignId);

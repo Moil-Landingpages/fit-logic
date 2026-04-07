@@ -404,13 +404,13 @@ function IntegrationsTab({
   const isGoogleGmailConnected = !!settings.google_gmail_token;
 
   const handleGoogleConnect = () => {
-    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-    if (!clientId) {
-      toast.error("Google Client ID not configured. Set VITE_GOOGLE_CLIENT_ID in your environment.");
-      return;
-    }
+    const clientId = "435907511578-v2n4hf6f2l65g6cv3m97mvcpc58p00o5.apps.googleusercontent.com";
     const redirectUri = `${window.location.origin}/settings?tab=integrations`;
-    const scope = encodeURIComponent("https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.send");
+    const scope = encodeURIComponent(
+      "https://www.googleapis.com/auth/calendar.readonly " +
+      "https://www.googleapis.com/auth/gmail.send " +
+      "https://www.googleapis.com/auth/gmail.readonly"
+    );
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`;
     window.location.href = authUrl;
   };
@@ -439,11 +439,7 @@ function IntegrationsTab({
           </CardTitle>
           <CardDescription className="text-xs">
             Connect Google Calendar for scheduling and Gmail for email sending.
-            {!import.meta.env.VITE_GOOGLE_CLIENT_ID && (
-              <span className="block mt-1 text-amber-600">
-                ⚠ Set VITE_GOOGLE_CLIENT_ID in your environment to enable Google OAuth.
-              </span>
-            )}
+            
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -676,26 +672,50 @@ const Settings = () => {
     }
   }, []);
 
-  const { data: settings, isLoading } = useQuery({
+  const { data: rawSettings, isLoading } = useQuery({
     queryKey: QK.settings,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("practice_settings")
         .select("*")
         .limit(1)
-        .single();
+        .maybeSingle();
       if (error) throw error;
-      return data as PracticeSettings;
+      return data as PracticeSettings | null;
     },
   });
 
+  const settings: PracticeSettings = rawSettings ?? {
+    id: "",
+    practice_name: "FitLogic Functional Medicine",
+    timezone: "America/New_York",
+    business_hours_start: 8,
+    business_hours_end: 18,
+    business_days: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+    max_sends_per_day: 50,
+    escalation_staff_id: null,
+    google_calendar_token: null,
+    google_gmail_token: null,
+    email_provider: "resend",
+    email_provider_api_key: null,
+    email_from_address: null,
+    email_from_name: null,
+  };
+
   const updateSettings = useMutation({
     mutationFn: async (updates: Partial<PracticeSettings>) => {
-      const { error } = await supabase
-        .from("practice_settings")
-        .update(updates)
-        .eq("id", settings!.id);
-      if (error) throw error;
+      if (settings.id) {
+        const { error } = await supabase
+          .from("practice_settings")
+          .update(updates)
+          .eq("id", settings.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("practice_settings")
+          .insert({ ...updates });
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QK.settings });
@@ -704,7 +724,7 @@ const Settings = () => {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to save settings"),
   });
 
-  if (isLoading || !settings) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-3.5rem)] text-muted-foreground">
         <div className="space-y-2 text-center">

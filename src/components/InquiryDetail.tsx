@@ -48,15 +48,10 @@ export function InquiryDetail({ inquiry, onUpdate }: Props) {
 
   // Load staff list and escalation target from practice_settings
   useEffect(() => {
-    Promise.all([
-      supabase.from("staff").select("id, name, role, active").eq("active", true),
-      supabase.from("practice_settings").select("escalation_staff_id").limit(1).single(),
-    ]).then(([staffRes, settingsRes]) => {
-      if (staffRes.data) setStaff(staffRes.data);
-      if (settingsRes.data?.escalation_staff_id) {
-        setEscalationStaffId(settingsRes.data.escalation_staff_id);
-      }
-    });
+    supabase.from("staff").select("id, name, role, active").eq("active", true)
+      .then((staffRes) => {
+        if (staffRes.data) setStaff(staffRes.data);
+      });
   }, []);
 
   useEffect(() => {
