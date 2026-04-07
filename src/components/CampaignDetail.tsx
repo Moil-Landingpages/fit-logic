@@ -216,7 +216,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
     toast({ title: "Campaign scheduled", description: `Starts ${new Date(scheduleDate).toLocaleString()}` });
   };
 
-  const sentRecipients = recipients.filter(r => r.status !== "pending");
+  const failedRecipients = recipients.filter(r => r.status === "failed");
   const pendingRecipients = recipients.filter(r => r.status === "pending");
   const totalDays = sequences.reduce((sum: number, s: any) => sum + (s.delay_days || 0), 0);
   const estimatedSendDays = maxSendsPerDay > 0 ? Math.ceil(recipients.length / maxSendsPerDay) : 0;
