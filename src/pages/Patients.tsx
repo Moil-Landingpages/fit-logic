@@ -6,7 +6,7 @@ import { toast } from "@/hooks/use-toast";
 import {
   Users, Plus, Search, MoreHorizontal, Mail, Phone, Building2,
   Eye, Pencil, Trash2, ChevronLeft, ArrowUpDown, Tag, StickyNote,
-  MapPin, DollarSign, TrendingUp, Clock, Send, X, Filter,
+  MapPin, DollarSign, TrendingUp, Clock, Send, X, Filter, Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { PatientForm, type PatientFormData } from "@/components/PatientForm";
 import { PatientTimeline } from "@/components/PatientTimeline";
+import { BulkImportDialog } from "@/components/BulkImportDialog";
 
 type Patient = {
   id: string;
@@ -131,6 +132,7 @@ export default function Patients() {
   const [sortBy, setSortBy] = useState<"newest" | "name" | "company" | "deal_value">(saved?.sortBy ?? "newest");
   const [showFilters, setShowFilters] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState<Patient | null>(null);
   const [viewing, setViewing] = useState<Patient | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Patient | null>(null);
@@ -147,17 +149,40 @@ export default function Patients() {
     setSearch(""); setStatusFilter("all"); setStageFilter("all"); setSourceFilter("all"); setSortBy("newest");
   };
 
+  const PAGE_SIZE = 500;
+  const [page, setPage] = useState(0);
+  const [allLoaded, setAllLoaded] = useState(false);
+
   const { data: patients = [], isLoading } = useQuery({
-    queryKey: QK.patients,
+    queryKey: [...QK.patients, page],
     queryFn: async () => {
+      const from = page * PAGE_SIZE;
+      const to   = from + PAGE_SIZE - 1;
       const { data, error } = await supabase
         .from("patients")
         .select("*")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .range(from, to);
       if (error) throw error;
+      if ((data?.length ?? 0) < PAGE_SIZE) setAllLoaded(true);
       return data as Patient[];
     },
   });
+
+  // Accumulate pages
+  const [allPatients, setAllPatients] = useState<Patient[]>([]);
+  useEffect(() => {
+    if (patients.length > 0) {
+      if (page === 0) {
+        setAllPatients(patients);
+      } else {
+        setAllPatients((prev) => {
+          const ids = new Set(prev.map((p) => p.id));
+          return [...prev, ...patients.filter((p) => !ids.has(p.id))];
+        });
+      }
+    }
+  }, [patients, page]);
 
   // Campaign participation query for detail view
   const { data: contactCampaigns = [] } = useQuery({
@@ -241,13 +266,13 @@ export default function Patients() {
   });
 
   const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: patients.length, active: 0, inactive: 0, archived: 0 };
-    patients.forEach(p => { counts[p.status] = (counts[p.status] || 0) + 1; });
+    const counts: Record<string, number> = { all: allPatients.length, active: 0, inactive: 0, archived: 0 };
+    allPatients.forEach(p => { counts[p.status] = (counts[p.status] || 0) + 1; });
     return counts;
-  }, [patients]);
+  }, [allPatients]);
 
   const filtered = useMemo(() => {
-    let result = patients;
+    let result = allPatients;
     if (statusFilter !== "all") result = result.filter(p => p.status === statusFilter);
     if (stageFilter !== "all") result = result.filter(p => p.pipeline_stage === stageFilter);
     if (sourceFilter !== "all") result = result.filter(p => p.lead_source === sourceFilter);
@@ -589,12 +614,17 @@ export default function Patients() {
         <div>
           <h1 className="font-heading text-2xl font-bold text-foreground">Contacts</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Manage your sales pipeline · {patients.length} contact{patients.length !== 1 ? "s" : ""}
+            Manage your sales pipeline · {allPatients.length} contact{allPatients.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <Button onClick={() => { setEditing(null); setFormOpen(true); }} className="gap-1.5 shadow-card">
-          <Plus className="h-4 w-4" /> Add Contact
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setImportOpen(true)} className="gap-1.5 shadow-card">
+            <Upload className="h-4 w-4" /> Import CSV
+          </Button>
+          <Button onClick={() => { setEditing(null); setFormOpen(true); }} className="gap-1.5 shadow-card">
+            <Plus className="h-4 w-4" /> Add Contact
+          </Button>
+        </div>
       </div>
 
       {/* Filters bar */}
@@ -691,7 +721,7 @@ export default function Patients() {
                   <DropdownMenuItem key={key} onClick={() => setStageFilter(key)}>
                     {label}
                     <span className="ml-auto text-muted-foreground text-xs">
-                      {patients.filter(p => p.pipeline_stage === key).length}
+                      {allPatients.filter(p => p.pipeline_stage === key).length}
                     </span>
                   </DropdownMenuItem>
                 ))}
@@ -713,7 +743,7 @@ export default function Patients() {
                   <DropdownMenuItem key={key} onClick={() => setSourceFilter(key)}>
                     {cfg.label}
                     <span className="ml-auto text-muted-foreground text-xs">
-                      {patients.filter(p => p.lead_source === key).length}
+                      {allPatients.filter(p => p.lead_source === key).length}
                     </span>
                   </DropdownMenuItem>
                 ))}
@@ -811,12 +841,23 @@ export default function Patients() {
         </CardContent>
       </Card>
 
-      {/* Summary */}
-      {filtered.length > 0 && (
-        <p className="text-xs text-muted-foreground text-center">
-          Showing {filtered.length} of {patients.length} contacts
-        </p>
-      )}
+      {/* Summary + Load more */}
+      <div className="flex flex-col items-center gap-2">
+        {filtered.length > 0 && (
+          <p className="text-xs text-muted-foreground text-center">
+            Showing {filtered.length} of {allPatients.length}{!allLoaded ? "+" : ""} contacts
+          </p>
+        )}
+        {!allLoaded && !isLoading && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage((p) => p + 1)}
+          >
+            Load more contacts
+          </Button>
+        )}
+      </div>
 
       {/* Add/Edit Dialog */}
       <Dialog open={formOpen} onOpenChange={(o) => { if (!o) { setFormOpen(false); setEditing(null); } }}>
@@ -863,6 +904,9 @@ export default function Patients() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Bulk Import */}
+      <BulkImportDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
 }
