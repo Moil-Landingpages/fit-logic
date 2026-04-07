@@ -54,9 +54,11 @@ type Patient = {
 };
 
 const STATUS_MAP: Record<string, { label: string; color: string; dot: string }> = {
-  active: { label: "Active Lead", color: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
-  inactive: { label: "Cold", color: "bg-amber-50 text-amber-700 border-amber-200", dot: "bg-amber-500" },
-  archived: { label: "Closed", color: "bg-muted text-muted-foreground border-border", dot: "bg-muted-foreground" },
+  lead:     { label: "Lead",   color: "bg-blue-50 text-blue-700 border-blue-200",     dot: "bg-blue-500" },
+  client:   { label: "Client", color: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
+  active:   { label: "Active", color: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
+  inactive: { label: "Cold",   color: "bg-amber-50 text-amber-700 border-amber-200",  dot: "bg-amber-500" },
+  archived: { label: "Closed", color: "bg-muted text-muted-foreground border-border",  dot: "bg-muted-foreground" },
 };
 
 const LEAD_SOURCE_MAP: Record<string, { label: string; color: string }> = {
@@ -136,6 +138,8 @@ export default function Patients() {
   const [viewing, setViewing] = useState<Patient | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Patient | null>(null);
   const [detailTab, setDetailTab] = useState("overview");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   // Persist filters to sessionStorage
   useEffect(() => {
@@ -261,8 +265,38 @@ export default function Patients() {
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { error } = await supabase.from("patients").delete().in("id", ids);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QK.patients });
+      setSelected(new Set());
+      setBulkDeleteOpen(false);
+      toast({ title: `${selected.size} contacts deleted` });
+    },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === filtered.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(filtered.map((p) => p.id)));
+    }
+  };
+
   const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: allPatients.length, active: 0, inactive: 0, archived: 0 };
+    const counts: Record<string, number> = { all: allPatients.length, lead: 0, client: 0, active: 0, inactive: 0, archived: 0 };
     allPatients.forEach(p => { counts[p.status] = (counts[p.status] || 0) + 1; });
     return counts;
   }, [allPatients]);
@@ -613,6 +647,8 @@ export default function Patients() {
           <div className="flex items-center bg-card border rounded-lg p-0.5 shadow-card">
             {[
               { key: "all", label: "All" },
+              { key: "lead", label: "Leads" },
+              { key: "client", label: "Clients" },
               { key: "active", label: "Active" },
               { key: "inactive", label: "Cold" },
               { key: "archived", label: "Closed" },
@@ -732,6 +768,19 @@ export default function Patients() {
         )}
       </div>
 
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border bg-card p-3 shadow-card">
+          <span className="text-sm font-medium">{selected.size} selected</span>
+          <Button variant="destructive" size="sm" onClick={() => setBulkDeleteOpen(true)}>
+            <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete Selected
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+            <X className="h-3.5 w-3.5 mr-1" /> Clear
+          </Button>
+        </div>
+      )}
+
       {/* Table */}
       <Card className="shadow-card overflow-hidden">
         <CardContent className="p-0">
@@ -754,18 +803,33 @@ export default function Patients() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30">
+                  <TableHead className="w-10">
+                    <input
+                      type="checkbox"
+                      checked={selected.size === filtered.length && filtered.length > 0}
+                      onChange={toggleSelectAll}
+                      className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                    />
+                  </TableHead>
                   <TableHead className="font-medium">Contact</TableHead>
                   <TableHead className="font-medium">Email</TableHead>
-                  <TableHead className="font-medium">Company</TableHead>
-                  <TableHead className="font-medium">Lead Source</TableHead>
-                  <TableHead className="font-medium">Deal Value</TableHead>
+                  <TableHead className="font-medium">Type</TableHead>
                   <TableHead className="font-medium">Status</TableHead>
+                  <TableHead className="font-medium">Tags</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.map((p) => (
-                  <TableRow key={p.id} className="cursor-pointer group" onClick={() => setViewing(p)}>
+                  <TableRow key={p.id} className={`cursor-pointer group ${selected.has(p.id) ? "bg-primary/5" : ""}`} onClick={() => setViewing(p)}>
+                    <TableCell onClick={(e) => { e.stopPropagation(); toggleSelect(p.id); }}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(p.id)}
+                        onChange={() => toggleSelect(p.id)}
+                        className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                      />
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-9 w-9 text-xs shadow-sm">
@@ -785,12 +849,18 @@ export default function Patients() {
                       <div className="text-muted-foreground">{p.email || "—"}</div>
                       {p.phone && <div className="text-[11px] text-muted-foreground/70">{p.phone}</div>}
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{p.insurance_provider || "—"}</TableCell>
                     <TableCell><StatusPill status={p.status} /></TableCell>
-                    <TableCell className="text-sm font-medium font-heading">
-                      {p.gender || "—"}
+                    <TableCell><StatusPill status={p.status} /></TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {(p.tags || []).slice(0, 2).map((tag) => (
+                          <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0">{tag}</Badge>
+                        ))}
+                        {(p.tags || []).length > 2 && (
+                          <span className="text-[10px] text-muted-foreground">+{(p.tags || []).length - 2}</span>
+                        )}
+                      </div>
                     </TableCell>
-                    <TableCell><StatusPill status={p.status} /></TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -877,6 +947,27 @@ export default function Patients() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}>
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Confirmation */}
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selected.size} Contacts</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove {selected.size} contacts from your pipeline. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => bulkDeleteMutation.mutate(Array.from(selected))}
+            >
+              {bulkDeleteMutation.isPending ? "Deleting…" : `Delete ${selected.size} Contacts`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
