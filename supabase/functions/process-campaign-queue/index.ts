@@ -254,11 +254,23 @@ serve(async (req) => {
         .limit(Math.min(remaining, 500)); // Never fetch more than 500 at once
 
       if (!pendingRecipients?.length) {
+        const { count: remainingFailed } = await supabase
+          .from("campaign_recipients")
+          .select("*", { count: "exact", head: true })
+          .eq("campaign_id", campaign.id)
+          .eq("status", "failed");
+
+        const nextStatus = (remainingFailed ?? 0) > 0 ? "paused" : "sent";
+        const nextUpdate: Record<string, unknown> = { status: nextStatus };
+        if (nextStatus === "sent") {
+          nextUpdate.sent_at = now.toISOString();
+        }
+
         await supabase.from("campaigns")
-          .update({ status: "sent", sent_at: now.toISOString() })
+          .update(nextUpdate)
           .eq("id", campaign.id);
         await updateCampaignStats(supabase, campaign.id);
-        results.push({ campaign: campaign.name, completed: true });
+        results.push({ campaign: campaign.name, completed: true, status: nextStatus, failedRemaining: remainingFailed ?? 0 });
         continue;
       }
 
