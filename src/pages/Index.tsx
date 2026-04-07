@@ -31,10 +31,6 @@ type ContactRow = {
   first_name: string;
   last_name: string;
   email: string | null;
-  company: string | null;
-  deal_value: number | null;
-  lead_source: string | null;
-  pipeline_stage: string;
   status: string;
   created_at: string;
 };
@@ -82,21 +78,15 @@ function PipelineCard({
             <p className="text-sm font-medium text-foreground truncate leading-tight">
               {contact.first_name} {contact.last_name}
             </p>
-            {contact.company && (
-              <p className="text-[11px] text-muted-foreground truncate">{contact.company}</p>
+            {contact.email && (
+              <p className="text-[11px] text-muted-foreground truncate">{contact.email}</p>
             )}
           </div>
         </div>
         <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
       <div className="flex items-center justify-between mt-2.5">
-        {contact.deal_value != null ? (
-          <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
-            {fmt$(contact.deal_value)}
-          </span>
-        ) : (
-          <span className="text-xs text-muted-foreground/50">No value</span>
-        )}
+        <Badge variant="outline" className="text-[10px]">{contact.status}</Badge>
         <span className="text-[10px] text-muted-foreground">{relDate(contact.created_at)}</span>
       </div>
     </div>
@@ -118,7 +108,7 @@ function KanbanColumn({
   onNavigate: (id: string) => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
-  const totalValue = contacts.reduce((s, c) => s + (c.deal_value ?? 0), 0);
+  const totalValue = contacts.length;
 
   return (
     <div
@@ -140,7 +130,7 @@ function KanbanColumn({
             </span>
           </div>
           {totalValue > 0 && (
-            <span className="text-[10px] text-muted-foreground font-medium">{fmt$(totalValue)}</span>
+            <span className="text-[10px] text-muted-foreground font-medium">{totalValue} contacts</span>
           )}
         </div>
       </div>
@@ -177,7 +167,7 @@ const Index = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("patients")
-        .select("id, first_name, last_name, email, company, deal_value, lead_source, pipeline_stage, status, created_at")
+        .select("id, first_name, last_name, email, status, created_at")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as ContactRow[];
@@ -220,7 +210,7 @@ const Index = () => {
   const stageMutation = useMutation({
     mutationFn: async ({ id, stage }: { id: string; stage: string }) => {
       const { error } = await supabase
-        .from("patients").update({ pipeline_stage: stage }).eq("id", id);
+        .from("patients").update({ status: stage }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: QK.patients }),
@@ -230,14 +220,14 @@ const Index = () => {
   const handleDrop = (targetStage: string) => {
     if (!draggingId || !targetStage) return;
     const contact = contacts.find((c) => c.id === draggingId);
-    if (!contact || contact.pipeline_stage === targetStage) { setDraggingId(null); return; }
+    if (!contact || contact.status === targetStage) { setDraggingId(null); return; }
     stageMutation.mutate({ id: draggingId, stage: targetStage });
     setDraggingId(null);
   };
 
   // Group contacts by stage
   const byStage = Object.fromEntries(
-    PIPELINE_STAGES.map((s) => [s.key, contacts.filter((c) => c.pipeline_stage === s.key)])
+    PIPELINE_STAGES.map((s) => [s.key, contacts.filter((c) => c.status === s.key)])
   ) as Record<PipelineStage, ContactRow[]>;
 
   // KPIs
@@ -246,21 +236,19 @@ const Index = () => {
   const totalSent        = campaigns.reduce((s, c) => s + ((c as any).sent_count || 0), 0);
   const pendingLeads     = (submissions as any[]).filter((s) => s.review_status === "pending").length;
   const convertedReferrals = referrals.filter((r: any) => r.status === "converted").length;
-  const pipelineValue    = contacts
-    .filter((c) => !["won", "lost"].includes(c.pipeline_stage))
-    .reduce((s, c) => s + (c.deal_value ?? 0), 0);
-  const wonValue         = byStage.won.reduce((s, c) => s + (c.deal_value ?? 0), 0);
-  const totalDeals       = byStage.won.length + byStage.lost.length;
-  const conversionRate   = totalDeals > 0 ? Math.round((byStage.won.length / totalDeals) * 100) : 0;
+  const pipelineContacts = contacts.length;
+  const wonCount         = byStage.won?.length ?? 0;
+  const lostCount        = byStage.lost?.length ?? 0;
+  const totalDeals       = wonCount + lostCount;
+  const conversionRate   = totalDeals > 0 ? Math.round((wonCount / totalDeals) * 100) : 0;
 
   const recentCampaigns = campaigns.slice(0, 4);
 
   const metrics = [
-    { label: "Pipeline Value",    value: fmt$(pipelineValue) ?? "$0",  icon: DollarSign,      color: "text-emerald-600", bg: "bg-emerald-500/10", action: () => {} },
+    { label: "Total Contacts",    value: contacts.length,               icon: Users,            color: "text-primary",     bg: "bg-primary/10",     action: () => navigate("/contacts") },
     { label: "Active Contacts",   value: activeContacts,               icon: Users,            color: "text-primary",     bg: "bg-primary/10",     action: () => navigate("/contacts") },
     { label: "Live Campaigns",    value: activeCampaigns,              icon: Mail,             color: "text-blue-600",    bg: "bg-blue-500/10",    action: () => navigate("/campaigns") },
     { label: "Pending Leads",     value: pendingLeads,                 icon: Target,           color: "text-amber-600",   bg: "bg-amber-500/10",   action: () => navigate("/forms") },
-    { label: "Won This Month",    value: fmt$(wonValue) ?? "$0",       icon: Trophy,           color: "text-emerald-600", bg: "bg-emerald-500/10", action: () => {} },
     { label: "Conversion Rate",   value: `${conversionRate}%`,         icon: TrendingUp,       color: "text-violet-600",  bg: "bg-violet-500/10",  action: () => {} },
     { label: "Emails Sent",       value: totalSent,                    icon: Mail,             color: "text-blue-600",    bg: "bg-blue-500/10",    action: () => navigate("/campaigns") },
     { label: "Referrals Won",     value: convertedReferrals,           icon: Share2,           color: "text-orange-600",  bg: "bg-orange-500/10",  action: () => navigate("/referrals") },
@@ -272,7 +260,7 @@ const Index = () => {
         <div>
           <h1 className="font-heading text-2xl font-bold text-foreground">Sales Pipeline</h1>
           <p className="text-sm text-muted-foreground">
-            {contacts.length} contacts · {fmt$(pipelineValue)} in pipeline
+            {contacts.length} contacts
           </p>
         </div>
         <div className="flex gap-2">
@@ -389,13 +377,10 @@ const Index = () => {
                     >
                       <div>
                         <p className="text-sm font-medium text-foreground">{c.first_name} {c.last_name}</p>
-                        <p className="text-xs text-muted-foreground">{c.company || c.email || "No details"}</p>
+                        <p className="text-xs text-muted-foreground">{c.email || "No details"}</p>
                       </div>
                       <div className="flex flex-col items-end gap-1">
-                        <Badge variant="outline" className="text-[10px]">{c.pipeline_stage.replace("_", " ")}</Badge>
-                        {c.deal_value != null && (
-                          <span className="text-[10px] text-emerald-600 font-medium">{fmt$(c.deal_value)}</span>
-                        )}
+                        <Badge variant="outline" className="text-[10px]">{c.status}</Badge>
                       </div>
                     </div>
                   ))
