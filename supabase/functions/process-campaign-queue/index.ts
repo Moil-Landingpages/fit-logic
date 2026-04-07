@@ -359,7 +359,6 @@ serve(async (req) => {
           step_number:  stepNumber,
           status:       "queued",
           tracking_id:  trackingId,
-          provider:     emailProvider,
         });
 
         // ── Attempt delivery ──────────────────────────────────────────────
@@ -376,9 +375,8 @@ serve(async (req) => {
         if (sendResult.success) {
           await supabase.from("campaign_send_log")
             .update({
-              status:              "sent",
-              sent_at:             now.toISOString(),
-              provider_message_id: sendResult.messageId ?? null,
+              status:  "sent",
+              sent_at: now.toISOString(),
             })
             .eq("tracking_id", trackingId);
 
