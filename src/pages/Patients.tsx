@@ -47,6 +47,10 @@ type Patient = {
   insurance_provider: string | null;
   insurance_id: string | null;
   status: string;
+  pipeline_stage: string;
+  lead_source: string | null;
+  company: string | null;
+  deal_value: number | null;
   tags: string[] | null;
   notes: string | null;
   created_at: string;
@@ -216,6 +220,10 @@ export default function Patients() {
     state: form.state || null,
     zip_code: form.zip_code || null,
     status: form.status,
+    pipeline_stage: form.pipeline_stage || "new_lead",
+    lead_source: form.lead_source || null,
+    company: form.company || null,
+    deal_value: form.deal_value ? parseFloat(form.deal_value) : null,
     tags: parseTags(form.tags),
     notes: form.notes || null,
   });
@@ -304,8 +312,8 @@ export default function Patients() {
   const filtered = useMemo(() => {
     let result = allPatients;
     if (statusFilter !== "all") result = result.filter(p => p.status === statusFilter);
-    if (stageFilter !== "all") result = result.filter(p => p.status === stageFilter);
-    if (sourceFilter !== "all") result = result; // lead_source not in DB yet
+    if (stageFilter !== "all") result = result.filter(p => p.pipeline_stage === stageFilter);
+    if (sourceFilter !== "all") result = result.filter(p => p.lead_source === sourceFilter);
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(p =>
@@ -314,10 +322,10 @@ export default function Patients() {
       );
     }
     if (sortBy === "name") result = [...result].sort((a, b) => a.first_name.localeCompare(b.first_name));
-    else if (sortBy === "company") result = [...result].sort((a, b) => a.first_name.localeCompare(b.first_name));
-    else if (sortBy === "deal_value") result = [...result].sort((a, b) => a.first_name.localeCompare(b.first_name));
+    else if (sortBy === "company") result = [...result].sort((a, b) => (a.company ?? "").localeCompare(b.company ?? ""));
+    else if (sortBy === "deal_value") result = [...result].sort((a, b) => (b.deal_value ?? 0) - (a.deal_value ?? 0));
     return result;
-  }, [patients, statusFilter, stageFilter, sourceFilter, search, sortBy]);
+  }, [allPatients, statusFilter, stageFilter, sourceFilter, search, sortBy]);
 
   // ─── DETAIL VIEW ───
   if (viewing) {
@@ -344,9 +352,11 @@ export default function Patients() {
               </h1>
               <div className="flex items-center gap-2">
                 <StatusPill status={p.status} />
-                <div className="flex items-center gap-2">
-                <StatusPill status={p.status} />
-                </div>
+                {p.pipeline_stage && (
+                  <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                    {PIPELINE_STAGE_LABELS[p.pipeline_stage] ?? p.pipeline_stage}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -457,23 +467,32 @@ export default function Patients() {
               <Card className="shadow-card">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-medium flex items-center gap-2">
-                    <Building2 className="h-4 w-4 text-primary" /> Additional Info
+                    <Building2 className="h-4 w-4 text-primary" /> CRM Details
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Insurance</span>
-                    <span className="font-medium">{p.insurance_provider || "—"}</span>
+                    <span className="text-muted-foreground">Company</span>
+                    <span className="font-medium">{p.company || "—"}</span>
                   </div>
                   <Separator />
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Insurance ID</span>
-                    <span className="font-medium">{p.insurance_id || "—"}</span>
+                    <span className="text-muted-foreground">Deal Value</span>
+                    <span className="font-medium">
+                      {p.deal_value != null ? `$${p.deal_value.toLocaleString()}` : "—"}
+                    </span>
                   </div>
                   <Separator />
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Status</span>
-                    <StatusPill status={p.status} />
+                    <span className="text-muted-foreground">Lead Source</span>
+                    <LeadSourceBadge source={p.lead_source} />
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Pipeline Stage</span>
+                    <span className="font-medium">
+                      {PIPELINE_STAGE_LABELS[p.pipeline_stage] ?? p.pipeline_stage ?? "—"}
+                    </span>
                   </div>
                 </CardContent>
               </Card>
@@ -604,6 +623,8 @@ export default function Patients() {
                 first_name: editing.first_name, last_name: editing.last_name,
                 email: editing.email || "", phone: editing.phone || "",
                 date_of_birth: editing.date_of_birth || "",
+                company: editing.company || "", deal_value: editing.deal_value?.toString() || "",
+                lead_source: editing.lead_source || "", pipeline_stage: editing.pipeline_stage || "new_lead",
                 address: editing.address || "", city: editing.city || "",
                 state: editing.state || "", zip_code: editing.zip_code || "",
                 status: editing.status, tags: (editing.tags || []).join(", "),
@@ -736,7 +757,7 @@ export default function Patients() {
                   <DropdownMenuItem key={key} onClick={() => setStageFilter(key)}>
                     {label}
                     <span className="ml-auto text-muted-foreground text-xs">
-                      {allPatients.filter(p => p.status === key).length}
+                      {allPatients.filter(p => p.pipeline_stage === key).length}
                     </span>
                   </DropdownMenuItem>
                 ))}
@@ -758,7 +779,7 @@ export default function Patients() {
                   <DropdownMenuItem key={key} onClick={() => setSourceFilter(key)}>
                     {cfg.label}
                     <span className="ml-auto text-muted-foreground text-xs">
-                      {allPatients.filter(p => p.status === key).length}
+                      {allPatients.filter(p => p.lead_source === key).length}
                     </span>
                   </DropdownMenuItem>
                 ))}
@@ -849,7 +870,11 @@ export default function Patients() {
                       <div className="text-muted-foreground">{p.email || "—"}</div>
                       {p.phone && <div className="text-[11px] text-muted-foreground/70">{p.phone}</div>}
                     </TableCell>
-                    <TableCell><StatusPill status={p.status} /></TableCell>
+                    <TableCell>
+                      <span className="text-xs text-muted-foreground">
+                        {PIPELINE_STAGE_LABELS[p.pipeline_stage] ?? "—"}
+                      </span>
+                    </TableCell>
                     <TableCell><StatusPill status={p.status} /></TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">

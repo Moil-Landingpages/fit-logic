@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { QK } from "@/lib/queryKeys";
 import type { TablesUpdate } from "@/integrations/supabase/types";
 import {
   ArrowLeft, Pencil, Clock, Pause, Play, Send, Eye, Users,
@@ -82,7 +83,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
   const [businessDays, setBusinessDays] = useState<string[]>(campaign.business_days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"]);
 
   const { data: recipients = [], refetch: refetchRecipients } = useQuery({
-    queryKey: ["campaign-recipients", campaign.id],
+    queryKey: QK.campaignRecipients(campaign.id),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("campaign_recipients").select("*").eq("campaign_id", campaign.id).order("created_at");
@@ -92,7 +93,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
   });
 
   const { data: sequences = [] } = useQuery({
-    queryKey: ["campaign-sequences", campaign.id],
+    queryKey: QK.campaignSequences(campaign.id),
     queryFn: async () => {
       if (campaign.campaign_type !== "sequence") return [];
       const { data, error } = await supabase
@@ -119,7 +120,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
       const { error } = await supabase.from("campaigns").update(upd).eq("id", campaign.id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["campaigns"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: QK.campaigns }),
   });
 
   const addRecipientsMut = useMutation({
@@ -141,15 +142,23 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
       );
       if (error) throw error;
 
-      await supabase.from("campaigns").update({
+      // Update recipient_count; if campaign was already "sent", re-queue it so
+      // the new recipients actually get emails (the queue only processes
+      // "scheduled" and "sending" campaigns).
+      const campaignUpdate: Record<string, unknown> = {
         recipient_count: recipients.length + toAdd.length,
-      }).eq("id", campaign.id);
+      };
+      if (campaign.status === "sent") {
+        campaignUpdate.status = "scheduled";
+        campaignUpdate.scheduled_at = new Date().toISOString();
+      }
+      await supabase.from("campaigns").update(campaignUpdate).eq("id", campaign.id);
 
       return toAdd.length;
     },
     onSuccess: (count) => {
       refetchRecipients();
-      queryClient.invalidateQueries({ queryKey: ["campaigns"] });
+      queryClient.invalidateQueries({ queryKey: QK.campaigns });
       setShowAddRecipients(false);
       setNewRecipients([]);
       toast({ title: `Added ${count} recipient(s)` });
@@ -171,7 +180,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["campaigns"] });
+      queryClient.invalidateQueries({ queryKey: QK.campaigns });
       toast({ title: "Campaign sending now!", description: "Emails will start going out within 1 minute." });
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -198,7 +207,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
     },
     onSuccess: (count) => {
       refetchRecipients();
-      queryClient.invalidateQueries({ queryKey: ["campaigns"] });
+      queryClient.invalidateQueries({ queryKey: QK.campaigns });
       toast({ title: `Retrying ${count} failed recipient(s)`, description: "They'll be picked up within 1 minute." });
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),

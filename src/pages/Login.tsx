@@ -54,7 +54,7 @@ export default function Login() {
     e.preventDefault();
     setSubmitting(true);
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/settings`,
+      redirectTo: `${window.location.origin}/login`,
     });
     setSubmitting(false);
     if (error) {

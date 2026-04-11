@@ -156,12 +156,17 @@ serve(async (req) => {
 
     // ── Determine current time in practice timezone ────────────────────────
     const now = new Date();
-    // Convert UTC now to practice local time for business-hours checking
-    const localTimeStr = now.toLocaleString("en-US", { timeZone: practiceTimezone });
-    const localNow     = new Date(localTimeStr);
-    const currentHour  = localNow.getHours();
-    const dayNames     = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const currentDay   = dayNames[localNow.getDay()];
+    // Use Intl.DateTimeFormat.formatToParts to correctly extract hour + weekday
+    // in the practice timezone. The old approach (new Date(toLocaleString())) was
+    // broken: JS parses the locale string as local (UTC in Deno), not as the TZ.
+    const tzParts = new Intl.DateTimeFormat("en-US", {
+      timeZone: practiceTimezone,
+      weekday: "short",
+      hour: "numeric",
+      hour12: false,
+    }).formatToParts(now);
+    const currentHour = parseInt(tzParts.find((p) => p.type === "hour")?.value ?? "0") % 24;
+    const currentDay  = tzParts.find((p) => p.type === "weekday")?.value ?? "Mon";
 
     // ── Handle test send mode ─────────────────────────────────────────────
     if (isTestSend && testCampaignId && testEmail) {

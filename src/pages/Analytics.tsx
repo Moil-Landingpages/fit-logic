@@ -110,7 +110,7 @@ export default function Analytics() {
       const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
       const { data } = await supabase
         .from("campaign_send_log")
-        .select("status, opened_at, clicked_at, created_at, campaign_id")
+        .select("status, opened_at, clicked_at, created_at, campaign_id, complaint_at, bounce_type")
         .gte("created_at", since);
       return data ?? [];
     },
@@ -180,7 +180,7 @@ export default function Analytics() {
     const opened     = sendLog.filter((r: any) => r.opened_at).length;
     const clicked    = sendLog.filter((r: any) => r.clicked_at).length;
     const bounced    = sendLog.filter((r: any) => r.status === "bounced").length;
-    const complained = 0;
+    const complained = sendLog.filter((r: any) => r.complaint_at).length;
     return {
       total,
       sent,

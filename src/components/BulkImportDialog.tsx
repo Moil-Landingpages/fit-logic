@@ -26,50 +26,68 @@ import { AlertCircle, CheckCircle2, Upload } from "lucide-react";
 // ─── Field mapping ────────────────────────────────────────────────────────────
 
 const DB_FIELDS = [
-  { value: "_skip",          label: "— Skip column —" },
-  { value: "first_name",     label: "First name" },
-  { value: "last_name",      label: "Last name" },
-  { value: "email",          label: "Email" },
-  { value: "phone",          label: "Phone" },
-  { value: "date_of_birth",  label: "Date of birth" },
-  { value: "status",         label: "Status" },
-  { value: "address",        label: "Address" },
-  { value: "city",           label: "City" },
-  { value: "state",          label: "State" },
-  { value: "zip",            label: "ZIP" },
-  { value: "tags",           label: "Tags (comma-separated)" },
-  { value: "notes",          label: "Notes" },
+  { value: "_skip",           label: "— Skip column —" },
+  { value: "first_name",      label: "First name" },
+  { value: "last_name",       label: "Last name" },
+  { value: "email",           label: "Email" },
+  { value: "phone",           label: "Phone" },
+  { value: "date_of_birth",   label: "Date of birth" },
+  { value: "company",         label: "Company" },
+  { value: "deal_value",      label: "Deal value ($)" },
+  { value: "lead_source",     label: "Lead source" },
+  { value: "pipeline_stage",  label: "Pipeline stage" },
+  { value: "status",          label: "Status" },
+  { value: "address",         label: "Address" },
+  { value: "city",            label: "City" },
+  { value: "state",           label: "State" },
+  { value: "zip",             label: "ZIP" },
+  { value: "tags",            label: "Tags (comma-separated)" },
+  { value: "notes",           label: "Notes" },
 ] as const;
 
 type DbField = (typeof DB_FIELDS)[number]["value"];
 
 // Auto-detect common column names → DB field
 const AUTO_MAP: Record<string, DbField> = {
-  "first name": "first_name",
-  firstname:    "first_name",
-  "first_name": "first_name",
-  "last name":  "last_name",
-  lastname:     "last_name",
-  "last_name":  "last_name",
-  name:         "first_name",
-  email:        "email",
-  "e-mail":     "email",
-  phone:        "phone",
-  telephone:    "phone",
-  mobile:       "phone",
-  cell:         "phone",
-  dob:          "date_of_birth",
-  "date of birth": "date_of_birth",
-  birthday:     "date_of_birth",
-  status:       "status",
-  address:      "address",
-  city:         "city",
-  state:        "state",
-  zip:          "zip",
-  postal:       "zip",
-  tags:         "tags",
-  notes:        "notes",
-  note:         "notes",
+  "first name":     "first_name",
+  firstname:        "first_name",
+  "first_name":     "first_name",
+  "last name":      "last_name",
+  lastname:         "last_name",
+  "last_name":      "last_name",
+  name:             "first_name",
+  email:            "email",
+  "e-mail":         "email",
+  phone:            "phone",
+  telephone:        "phone",
+  mobile:           "phone",
+  cell:             "phone",
+  dob:              "date_of_birth",
+  "date of birth":  "date_of_birth",
+  birthday:         "date_of_birth",
+  company:          "company",
+  organization:     "company",
+  employer:         "company",
+  "deal value":     "deal_value",
+  "deal_value":     "deal_value",
+  deal:             "deal_value",
+  revenue:          "deal_value",
+  value:            "deal_value",
+  "lead source":    "lead_source",
+  "lead_source":    "lead_source",
+  source:           "lead_source",
+  "pipeline stage": "pipeline_stage",
+  "pipeline_stage": "pipeline_stage",
+  stage:            "pipeline_stage",
+  status:           "status",
+  address:          "address",
+  city:             "city",
+  state:            "state",
+  zip:              "zip",
+  postal:           "zip",
+  tags:             "tags",
+  notes:            "notes",
+  note:             "notes",
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -162,6 +180,9 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
         rec[dbField] = raw.split(",").map((t) => t.trim()).filter(Boolean);
       } else if (dbField === "zip") {
         rec["zip_code"] = raw;
+      } else if (dbField === "deal_value") {
+        const num = parseFloat(raw.replace(/[^0-9.]/g, ""));
+        if (!isNaN(num)) rec[dbField] = num;
       } else {
         rec[dbField] = raw;
       }

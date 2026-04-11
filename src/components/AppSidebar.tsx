@@ -1,8 +1,9 @@
-import { LayoutDashboard, Mail, Users, ClipboardList, FileText, Share2, Settings, BarChart3, ExternalLink, Inbox, Tent } from "lucide-react";
+import { LayoutDashboard, Mail, Users, ClipboardList, FileText, Share2, Settings, BarChart3, Inbox, Tent, LogOut } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { Link } from "react-router-dom";
 import { useLocation } from "react-router-dom";
 import logo from "@/assets/fitlogic-logo.png";
+import { useAuth } from "@/contexts/AuthContext";
 
 import {
   Sidebar,
@@ -23,7 +24,7 @@ const mainItems = [
   { title: "Inbox", url: "/inbox", icon: Inbox },
   { title: "Campaigns", url: "/campaigns", icon: Mail },
   { title: "Contacts", url: "/contacts", icon: Users },
-  // { title: "Lead Forms", url: "/forms", icon: ClipboardList },
+  { title: "Lead Forms", url: "/forms", icon: ClipboardList },
   { title: "FAQs", url: "/faqs", icon: FileText },
   { title: "Referrals", url: "/referrals", icon: Share2 },
 ];
@@ -35,6 +36,7 @@ const secondaryItems = [
 
 export function AppSidebar() {
   const { state } = useSidebar();
+  const { signOut } = useAuth();
   const collapsed = state === "collapsed";
   const location = useLocation();
   const currentPath = location.pathname;
@@ -71,14 +73,6 @@ export function AppSidebar() {
                 </SidebarMenuItem>
               ))}
               <SidebarMenuItem>
-                <SidebarMenuButton asChild>
-                  <a href="https://moilapp.com/marketing" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
-                    <ExternalLink className="h-4 w-4" />
-                    {!collapsed && <span>Marketing</span>}
-                  </a>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={isActive("/retreat")}>
                   <Link to="/retreat" className="flex items-center gap-2">
                     <Tent className="h-4 w-4" />
@@ -110,8 +104,16 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={signOut} className="text-sidebar-foreground/70 hover:text-destructive hover:bg-destructive/10 cursor-pointer">
+              <LogOut className="h-4 w-4" />
+              {!collapsed && <span>Log out</span>}
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
         {!collapsed && (
-          <div className="rounded-lg bg-sidebar-accent/50 p-3">
+          <div className="rounded-lg bg-sidebar-accent/50 p-3 mt-2">
             <p className="text-[11px] text-sidebar-foreground/70">FitLogic Sales Engine</p>
           </div>
         )}
