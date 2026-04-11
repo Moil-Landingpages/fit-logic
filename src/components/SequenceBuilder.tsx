@@ -290,7 +290,7 @@ Return an improved version maintaining the same general intent but with better c
                       <div>
                         <Label className="text-xs text-muted-foreground">Subject Line</Label>
                         <Input value={step.subject} onChange={(e) => updateStep(step.id, { subject: e.target.value })}
-                          placeholder={`Email ${step.step_number} subject...`} className="mt-1 text-sm" />
+                          placeholder={`Email ${step.step_number} subject... (use {{first_name}} etc.)`} className="mt-1 text-sm" />
                       </div>
                       <div className="flex items-center justify-between">
                         <Label className="text-xs text-muted-foreground">Email Body</Label>
@@ -311,6 +311,21 @@ Return an improved version maintaining the same general intent but with better c
                         <EmailPreview html={step.body_html} subject={step.subject} />
                       ) : (
                         <div className="space-y-3">
+                          <div className="flex flex-wrap gap-1">
+                            {["{{first_name}}", "{{last_name}}", "{{full_name}}", "{{company}}", "{{practice_name}}"].map((token) => (
+                              <button
+                                key={token}
+                                type="button"
+                                className="text-[10px] font-mono bg-primary/10 text-primary rounded px-1.5 py-0.5 hover:bg-primary/20 transition-colors"
+                                onClick={() => {
+                                  updateStep(step.id, { body_html: step.body_html + token });
+                                }}
+                                title={`Insert ${token}`}
+                              >
+                                {token}
+                              </button>
+                            ))}
+                          </div>
                           <Textarea value={step.body_html} onChange={(e) => updateStep(step.id, { body_html: e.target.value })}
                             placeholder="Write email copy as near-plain-text HTML for best deliverability. Use only <p>, <a href>, and <br> tags — no images, no tables, no inline styles." className="text-sm font-mono min-h-[180px]" />
                           {step.body_html && (

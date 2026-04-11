@@ -52,6 +52,16 @@ const Referrals = () => {
   const [newEmail, setNewEmail] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  const { data: practiceSettings } = useQuery({
+    queryKey: ["practice_settings"],
+    queryFn: async () => {
+      const { data } = await supabase.from("practice_settings").select("referral_base_url").limit(1).single();
+      return data;
+    },
+  });
+
+  const referralBaseUrl = practiceSettings?.referral_base_url?.replace(/\/$/, "") || window.location.origin;
+
   const { data: referrals = [] } = useQuery({
     queryKey: ["referrals"],
     queryFn: async () => {
@@ -96,7 +106,7 @@ const Referrals = () => {
   });
 
   const copyLink = (code: string) => {
-    navigator.clipboard.writeText(`https://moilapp.com/ref/${code}`);
+    navigator.clipboard.writeText(`${referralBaseUrl}/ref/${code}`);
     toast({ title: "Referral link copied!" });
   };
 

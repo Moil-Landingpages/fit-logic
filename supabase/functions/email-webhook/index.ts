@@ -21,6 +21,30 @@ async function suppress(email: string, reason: string, campaignId?: string) {
   );
 }
 
+// Suppress after N soft bounces (default 3) — prevents repeated delivery failures
+const SOFT_BOUNCE_THRESHOLD = 3;
+
+async function checkAndSuppressSoftBounce(email: string, campaignId?: string) {
+  if (!email) return;
+  const { count } = await supabase
+    .from("campaign_send_log")
+    .select("*", { count: "exact", head: true })
+    .eq("status", "bounced")
+    .eq("bounce_type", "soft_bounce");
+  // Also check via campaign_recipients email match for more accurate per-address count
+  const { data: softRows } = await supabase
+    .from("campaign_send_log")
+    .select("id, campaign_recipients!inner(email)")
+    .eq("status", "bounced")
+    .eq("bounce_type", "soft_bounce");
+  const addressSofts = (softRows ?? []).filter(
+    (r: any) => r.campaign_recipients?.email?.toLowerCase() === email.toLowerCase()
+  );
+  if (addressSofts.length >= SOFT_BOUNCE_THRESHOLD) {
+    await suppress(email, "soft_bounce", campaignId);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // campaign_send_log helpers
 // ---------------------------------------------------------------------------
@@ -123,12 +147,13 @@ async function handleResend(events: unknown[]) {
         ? "hard_bounce"
         : "soft_bounce";
       await markBounced(trackingId, bounceType);
-      if (email && bounceType === "hard_bounce") {
+      if (email) {
         const cid = await getCampaignId(trackingId);
-        await suppress(email, "hard_bounce", cid ?? undefined);
-      }
-      if (trackingId) {
-        const cid = await getCampaignId(trackingId);
+        if (bounceType === "hard_bounce") {
+          await suppress(email, "hard_bounce", cid ?? undefined);
+        } else {
+          await checkAndSuppressSoftBounce(email, cid ?? undefined);
+        }
         if (cid) await updateCampaignStats(cid);
       }
     } else if (type === "email.complained") {
@@ -168,12 +193,15 @@ async function handleSendGrid(events: unknown[]) {
       // SendGrid bounce types: "bounce" (hard), "blocked" (soft)
       const bounceType = (e.type as string) === "bounce" ? "hard_bounce" : "soft_bounce";
       await markBounced(trackingId, bounceType);
-      if (email && bounceType === "hard_bounce") {
+      if (email) {
         const cid = await getCampaignId(trackingId);
-        await suppress(email, "hard_bounce", cid ?? undefined);
+        if (bounceType === "hard_bounce") {
+          await suppress(email, "hard_bounce", cid ?? undefined);
+        } else {
+          await checkAndSuppressSoftBounce(email, cid ?? undefined);
+        }
+        if (cid) await updateCampaignStats(cid);
       }
-      const cid = await getCampaignId(trackingId);
-      if (cid) await updateCampaignStats(cid);
     } else if (type === "spamreport") {
       await markComplained(trackingId);
       if (email) {

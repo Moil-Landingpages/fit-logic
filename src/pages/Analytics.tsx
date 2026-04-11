@@ -86,7 +86,7 @@ export default function Analytics() {
     queryFn: async () => {
       const { data } = await supabase
         .from("patients")
-        .select("id, status, created_at");
+        .select("id, pipeline_stage, lead_source, created_at");
       return data ?? [];
     },
   });
@@ -127,38 +127,50 @@ export default function Analytics() {
     },
   });
 
-  // ─── Pipeline Funnel ────────────────────────────────────────────────────
+  // ─── Pipeline Funnel (ordered by STAGE_ORDER, excluding lost) ──────────
   const pipelineFunnel = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const p of patients) {
-      const s = (p as Record<string, unknown>).status as string ?? "active";
+      const s = (p as Record<string, unknown>).pipeline_stage as string ?? "new_lead";
       counts[s] = (counts[s] ?? 0) + 1;
     }
-    return Object.entries(counts).map(([status, count]) => ({
-      stage: status,
-      count,
-      fill: "#0e9aa7",
-    }));
+    return STAGE_ORDER
+      .filter((stage) => stage !== "lost")   // lost is a terminal state, not part of funnel
+      .map((stage) => ({
+        stage:  STAGE_LABELS[stage] ?? stage,
+        count:  counts[stage] ?? 0,
+        fill:   STAGE_COLORS[stage] ?? "#6366f1",
+      }));
   }, [patients]);
 
   // ─── Patient KPIs ──────────────────────────────────────────────────────
   const pipelineKpis = useMemo(() => {
     const total = patients.length;
-    const active = patients.filter((p) => (p as Record<string, unknown>).status === "active").length;
-    return { total, active, convRate: pct(active, total) };
+    const won   = patients.filter((p) => (p as Record<string, unknown>).pipeline_stage === "won").length;
+    const lost  = patients.filter((p) => (p as Record<string, unknown>).pipeline_stage === "lost").length;
+    const closedDeals = won + lost;
+    return { total, won, convRate: pct(won, closedDeals || total) };
   }, [patients]);
 
-  // ─── Status distribution (placeholder for lead sources) ─────────────────
+  // ─── Lead sources (actual lead_source field) ─────────────────────────────
   const leadSources = useMemo(() => {
+    const LABELS: Record<string, string> = {
+      referral:       "Referral",
+      "cold-outreach":"Cold Outreach",
+      inbound:        "Inbound",
+      event:          "Event",
+      social:         "Social Media",
+      other:          "Other",
+    };
     const counts: Record<string, number> = {};
     for (const p of patients) {
-      const s = (p as Record<string, unknown>).status as string ?? "unknown";
+      const s = (p as Record<string, unknown>).lead_source as string ?? "other";
       counts[s] = (counts[s] ?? 0) + 1;
     }
     return Object.entries(counts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
-      .map(([source, count]) => ({ source, count }));
+      .map(([source, count]) => ({ source: LABELS[source] ?? source, count }));
   }, [patients]);
 
   // ─── Campaign Email Stats ────────────────────────────────────────────────
@@ -254,8 +266,8 @@ export default function Analytics() {
           {/* KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <KpiCard title="Total Contacts" value={fmt(pipelineKpis.total)} icon={Users} />
-            <KpiCard title="Active Contacts" value={fmt(pipelineKpis.active)} icon={Users} />
-            <KpiCard title="Active Rate" value={pipelineKpis.convRate} sub="of total" icon={TrendingUp} />
+            <KpiCard title="Deals Won" value={fmt(pipelineKpis.won)} icon={CheckCircle2} />
+            <KpiCard title="Win Rate" value={pipelineKpis.convRate} sub="of closed deals" icon={TrendingUp} />
           </div>
 
           <div className="grid md:grid-cols-2 gap-5">

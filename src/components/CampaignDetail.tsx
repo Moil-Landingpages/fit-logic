@@ -5,7 +5,7 @@ import type { TablesUpdate } from "@/integrations/supabase/types";
 import {
   ArrowLeft, Pencil, Clock, Pause, Play, Send, Eye, Users,
   ChevronDown, ChevronUp, Mail, Layers, UserPlus, Calendar,
-  CalendarClock, Shield, X, MousePointerClick, Activity, RotateCcw, Zap
+  CalendarClock, Shield, X, MousePointerClick, Activity, RotateCcw, Zap, FlaskConical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -65,6 +65,8 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
   const [showAddRecipients, setShowAddRecipients] = useState(false);
   const [newRecipients, setNewRecipients] = useState<Recipient[]>([]);
   const [showSchedulePanel, setShowSchedulePanel] = useState(false);
+  const [showTestSend, setShowTestSend] = useState(false);
+  const [testEmail, setTestEmail] = useState("");
 
   // Schedule config state
   const [scheduleDate, setScheduleDate] = useState(() => {
@@ -202,6 +204,21 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const testSendMut = useMutation({
+    mutationFn: async (email: string) => {
+      const { error } = await supabase.functions.invoke("process-campaign-queue", {
+        body: { test_send: true, campaign_id: campaign.id, test_email: email },
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setShowTestSend(false);
+      setTestEmail("");
+      toast({ title: "Test email sent", description: `Check ${testEmail} for the preview.` });
+    },
+    onError: (e) => toast({ title: "Test send failed", description: e.message, variant: "destructive" }),
+  });
+
   const handleConfirmSchedule = () => {
     updateStatusMut.mutate({
       status: "scheduled",
@@ -243,7 +260,10 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
             <span className="text-xs text-muted-foreground">{recipients.length} recipients</span>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={() => setShowTestSend(true)}>
+            <FlaskConical className="h-3.5 w-3.5 mr-1" />Test Send
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setShowAddRecipients(true)}>
             <UserPlus className="h-3.5 w-3.5 mr-1" />Add People
           </Button>
@@ -600,6 +620,41 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
               disabled={newRecipients.length === 0 || addRecipientsMut.isPending}
             >
               {addRecipientsMut.isPending ? "Adding..." : `Add ${newRecipients.length} Recipient(s)`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Test Send Dialog */}
+      <Dialog open={showTestSend} onOpenChange={setShowTestSend}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Send Test Email</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Send a preview of this campaign's first email (with placeholder token values) to verify formatting before the real send.
+            </p>
+            <div>
+              <Label className="text-xs">Recipient Email</Label>
+              <Input
+                value={testEmail}
+                onChange={(e) => setTestEmail(e.target.value)}
+                placeholder="your@email.com"
+                type="email"
+                className="mt-1 h-9"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setShowTestSend(false)}>Cancel</Button>
+            <Button
+              size="sm"
+              onClick={() => testEmail.trim() && testSendMut.mutate(testEmail.trim())}
+              disabled={!testEmail.trim() || testSendMut.isPending}
+            >
+              <Send className="h-3.5 w-3.5 mr-1" />
+              {testSendMut.isPending ? "Sending..." : "Send Test"}
             </Button>
           </DialogFooter>
         </DialogContent>

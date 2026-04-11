@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import {
   Settings as SettingsIcon, Building2, Users, Plug, Mail,
   Save, Trash2, Plus, CheckCircle2, AlertCircle, ExternalLink,
-  Clock, Calendar, Loader2,
+  Clock, Calendar, Loader2, ShieldAlert, Link2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -50,6 +50,7 @@ type PracticeSettings = {
   email_provider_api_key: string | null;
   email_from_address: string | null;
   email_from_name: string | null;
+  referral_base_url: string | null;
 };
 
 type StaffRow = {
@@ -590,6 +591,7 @@ function IntegrationsTab({
 function CampaignDefaultsTab({ settings, onSave }: { settings: PracticeSettings; onSave: (updates: Partial<PracticeSettings>) => void }) {
   const [form, setForm] = useState({
     max_sends_per_day: settings.max_sends_per_day,
+    referral_base_url: settings.referral_base_url ?? "",
   });
 
   return (
@@ -618,11 +620,194 @@ function CampaignDefaultsTab({ settings, onSave }: { settings: PracticeSettings;
               Recommended: 200–500 for good deliverability. Check your provider's limits.
             </p>
           </div>
+          <Separator />
+          <div className="space-y-1.5 max-w-sm">
+            <Label className="text-xs flex items-center gap-1.5">
+              <Link2 className="h-3.5 w-3.5" /> Referral Base URL
+            </Label>
+            <Input
+              value={form.referral_base_url}
+              onChange={(e) => setForm((f) => ({ ...f, referral_base_url: e.target.value }))}
+              placeholder="https://your-domain.com"
+              className="h-9"
+            />
+            <p className="text-xs text-muted-foreground">
+              Referral links will be: <span className="font-mono">{form.referral_base_url || "https://your-domain.com"}/ref/REF-XXXXXX</span>
+            </p>
+          </div>
           <div className="flex justify-end">
-            <Button onClick={() => onSave({ max_sends_per_day: form.max_sends_per_day })} className="gap-1.5">
+            <Button onClick={() => onSave({ max_sends_per_day: form.max_sends_per_day, referral_base_url: form.referral_base_url })} className="gap-1.5">
               <Save className="h-3.5 w-3.5" /> Save
             </Button>
           </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Email Health Tab ──────────────────────────────────────────────────────────
+function EmailHealthTab() {
+  const queryClient = useQueryClient();
+  const [newSuppress, setNewSuppress] = useState("");
+
+  const { data: suppressions = [], isLoading: suppLoading } = useQuery({
+    queryKey: ["email_suppressions"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("email_suppressions")
+        .select("id, email, reason, created_at")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as { id: string; email: string; reason: string; created_at: string }[];
+    },
+  });
+
+  const { data: unsubscribes = [], isLoading: unsubLoading } = useQuery({
+    queryKey: ["campaign_unsubscribes"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("campaign_unsubscribes")
+        .select("id, email, created_at")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as { id: string; email: string; created_at: string }[];
+    },
+  });
+
+  const addSuppression = useMutation({
+    mutationFn: async (email: string) => {
+      const { error } = await supabase.from("email_suppressions").insert({ email: email.toLowerCase().trim(), reason: "manual" });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["email_suppressions"] });
+      setNewSuppress("");
+      toast.success("Email suppressed");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to suppress email"),
+  });
+
+  const removeSuppression = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("email_suppressions").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["email_suppressions"] }),
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to remove suppression"),
+  });
+
+  const removeUnsubscribe = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("campaign_unsubscribes").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["campaign_unsubscribes"] }),
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to remove unsubscribe"),
+  });
+
+  const REASON_LABELS: Record<string, string> = {
+    hard_bounce: "Hard Bounce",
+    soft_bounce: "Soft Bounce",
+    complaint:   "Complaint",
+    manual:      "Manual",
+    bounce:      "Bounce",
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Suppression List */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4 text-primary" /> Suppression List
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Emails on this list are never sent to, regardless of campaign. Auto-populated from hard bounces and complaints.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Manual add */}
+          <div className="flex gap-2 max-w-sm">
+            <Input
+              value={newSuppress}
+              onChange={(e) => setNewSuppress(e.target.value)}
+              placeholder="email@example.com"
+              className="h-9 text-sm"
+              onKeyDown={(e) => { if (e.key === "Enter" && newSuppress.trim()) addSuppression.mutate(newSuppress); }}
+            />
+            <Button
+              size="sm"
+              onClick={() => newSuppress.trim() && addSuppression.mutate(newSuppress)}
+              disabled={!newSuppress.trim() || addSuppression.isPending}
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" /> Suppress
+            </Button>
+          </div>
+
+          {suppLoading ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : suppressions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No suppressions. Bounced/complained addresses will appear here automatically.</p>
+          ) : (
+            <div className="rounded-md border divide-y max-h-72 overflow-y-auto">
+              {suppressions.map((s) => (
+                <div key={s.id} className="flex items-center justify-between px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">{s.email}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {REASON_LABELS[s.reason] ?? s.reason} · {new Date(s.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                    onClick={() => removeSuppression.mutate(s.id)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">{suppressions.length} suppressed address{suppressions.length !== 1 ? "es" : ""}</p>
+        </CardContent>
+      </Card>
+
+      {/* Unsubscribe List */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Mail className="h-4 w-4 text-primary" /> Unsubscribe List
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Recipients who clicked the unsubscribe link in any campaign email. Emails here are excluded from all future sends.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {unsubLoading ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : unsubscribes.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No unsubscribes yet.</p>
+          ) : (
+            <div className="rounded-md border divide-y max-h-72 overflow-y-auto">
+              {unsubscribes.map((u) => (
+                <div key={u.id} className="flex items-center justify-between px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">{u.email}</p>
+                    <p className="text-xs text-muted-foreground">{new Date(u.created_at).toLocaleDateString()}</p>
+                  </div>
+                  <Button
+                    variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                    onClick={() => removeUnsubscribe.mutate(u.id)}
+                    title="Re-subscribe (remove from unsubscribe list)"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground mt-2">{unsubscribes.length} unsubscribed address{unsubscribes.length !== 1 ? "es" : ""}</p>
         </CardContent>
       </Card>
     </div>
@@ -700,6 +885,7 @@ const Settings = () => {
     email_provider_api_key: null,
     email_from_address: null,
     email_from_name: null,
+    referral_base_url: null,
   };
 
   const updateSettings = useMutation({
@@ -745,7 +931,7 @@ const Settings = () => {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4 max-w-xl">
+        <TabsList className="grid w-full grid-cols-5 max-w-2xl">
           <TabsTrigger value="practice">
             <Building2 className="h-3.5 w-3.5 mr-1.5" /> Practice
           </TabsTrigger>
@@ -757,6 +943,9 @@ const Settings = () => {
           </TabsTrigger>
           <TabsTrigger value="campaigns">
             <Mail className="h-3.5 w-3.5 mr-1.5" /> Campaigns
+          </TabsTrigger>
+          <TabsTrigger value="email-health">
+            <ShieldAlert className="h-3.5 w-3.5 mr-1.5" /> Email Health
           </TabsTrigger>
         </TabsList>
 
@@ -771,6 +960,9 @@ const Settings = () => {
         </TabsContent>
         <TabsContent value="campaigns" className="mt-6">
           <CampaignDefaultsTab settings={settings} onSave={updateSettings.mutate} />
+        </TabsContent>
+        <TabsContent value="email-health" className="mt-6">
+          <EmailHealthTab />
         </TabsContent>
       </Tabs>
     </div>

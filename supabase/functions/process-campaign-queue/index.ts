@@ -104,6 +104,12 @@ async function sendEmail(
   }
 }
 
+// ─── Personalization token replacement ───────────────────────────────────────
+
+function applyTokens(text: string, tokens: Record<string, string>): string {
+  return text.replace(/\{\{(\w+)\}\}/g, (_match, key) => tokens[key] ?? "");
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 serve(async (req) => {
@@ -114,6 +120,13 @@ serve(async (req) => {
   const supabase    = createClient(supabaseUrl, serviceKey);
 
   try {
+    // ── Parse request body (supports test_send mode) ──────────────────────
+    let body: Record<string, unknown> = {};
+    try { body = await req.json(); } catch { /* empty body is fine */ }
+    const isTestSend  = body.test_send === true;
+    const testEmail   = isTestSend ? String(body.test_email ?? "") : "";
+    const testCampaignId = isTestSend ? String(body.campaign_id ?? "") : "";
+
     // ── Load practice settings (email provider, from address, timezone) ───
     const { data: settings } = await supabase
       .from("practice_settings")
@@ -121,7 +134,8 @@ serve(async (req) => {
       .limit(1)
       .single();
 
-    const emailProvider  = settings?.email_provider ?? "resend";
+    const emailProvider   = settings?.email_provider ?? "resend";
+    const practiceName    = settings?.practice_name ?? "FitLogic";
 
     // Try secrets first (RESEND_API_KEY env), then vault, then plain column
     let emailApiKey: string = Deno.env.get("RESEND_API_KEY") ?? settings?.email_provider_api_key ?? "";
@@ -148,6 +162,45 @@ serve(async (req) => {
     const currentHour  = localNow.getHours();
     const dayNames     = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const currentDay   = dayNames[localNow.getDay()];
+
+    // ── Handle test send mode ─────────────────────────────────────────────
+    if (isTestSend && testCampaignId && testEmail) {
+      const { data: campaign } = await supabase
+        .from("campaigns").select("*").eq("id", testCampaignId).single();
+      if (!campaign) return json({ error: "Campaign not found" }, 404);
+
+      let subject = "";
+      let bodyHtml = "";
+      if (campaign.campaign_type === "sequence") {
+        const { data: firstStep } = await supabase
+          .from("campaign_sequences").select("subject_override, body_html_override")
+          .eq("campaign_id", testCampaignId).order("step_number").limit(1).single();
+        subject  = firstStep?.subject_override  ?? "";
+        bodyHtml = firstStep?.body_html_override ?? "";
+      } else if (campaign.template_id) {
+        const { data: tmpl } = await supabase
+          .from("email_templates").select("subject, body_html").eq("id", campaign.template_id).single();
+        subject  = tmpl?.subject  ?? "";
+        bodyHtml = tmpl?.body_html ?? "";
+      }
+      const testTokens: Record<string, string> = {
+        first_name: "Test", last_name: "Recipient", full_name: "Test Recipient",
+        email: testEmail, company: "Your Company", phone: "(555) 000-0000",
+        practice_name: practiceName,
+      };
+      subject  = applyTokens(subject, testTokens);
+      bodyHtml = applyTokens(bodyHtml, testTokens);
+      const testTrackingId = crypto.randomUUID();
+      const finalHtml = `${bodyHtml}
+<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;text-align:center;font-size:11px;color:#9ca3af;">
+  [TEST EMAIL — not tracked] <br/><a href="#" style="color:#9ca3af;">Unsubscribe</a>
+</div>`;
+      const result = await sendEmail(emailProvider, emailApiKey, {
+        to: testEmail, toName: "Test Recipient", subject, html: finalHtml,
+        from: fromHeader, listUnsubscribeUrl: "#", trackingId: testTrackingId,
+      });
+      return json(result.success ? { sent: true } : { error: result.error });
+    }
 
     // ── Fetch scheduled/sending campaigns ─────────────────────────────────
     const { data: campaigns, error: campErr } = await supabase
@@ -244,10 +297,10 @@ serve(async (req) => {
         }
       }
 
-      // ── Fetch pending recipients ──────────────────────────────────────────
+      // ── Fetch pending recipients (with patient data for personalization) ──
       const { data: pendingRecipients } = await supabase
         .from("campaign_recipients")
-        .select("id, email, name, patient_id, current_step, status")
+        .select("id, email, name, patient_id, current_step, status, patients(first_name, last_name, company, phone)")
         .eq("campaign_id", campaign.id)
         .eq("status", "pending")
         .order("created_at")
@@ -341,6 +394,22 @@ serve(async (req) => {
           continue;
         }
 
+        // ── Personalization tokens ─────────────────────────────────────────
+        const patient = (recipient as any).patients;
+        const firstName = patient?.first_name ?? (recipient.name?.split(" ")[0] ?? "");
+        const lastName  = patient?.last_name  ?? (recipient.name?.split(" ").slice(1).join(" ") ?? "");
+        const tokens: Record<string, string> = {
+          first_name:    firstName,
+          last_name:     lastName,
+          full_name:     patient ? `${firstName} ${lastName}`.trim() : (recipient.name ?? ""),
+          email:         recipient.email,
+          company:       patient?.company ?? "",
+          phone:         patient?.phone ?? "",
+          practice_name: practiceName,
+        };
+        subject  = applyTokens(subject, tokens);
+        bodyHtml = applyTokens(bodyHtml, tokens);
+
         // ── Build tracking URLs ───────────────────────────────────────────
         const trackingId   = crypto.randomUUID();
         const trackBase    = `${supabaseUrl}/functions/v1`;
@@ -419,11 +488,8 @@ serve(async (req) => {
         }
       }
 
-      // ── Update campaign sent_count + stats ────────────────────────────
-      if (sentCount > 0) {
-        await supabase.from("campaigns")
-          .update({ sent_count: (campaign.sent_count ?? 0) + sentCount })
-          .eq("id", campaign.id);
+      // ── Update campaign stats (derive sent_count from logs, no double-count) ──
+      if (sentCount > 0 || failedCount > 0) {
         await updateCampaignStats(supabase, campaign.id);
       }
 
@@ -447,14 +513,18 @@ async function updateCampaignStats(supabase: any, campaignId: string) {
 
   if (!data) return;
 
+  const sentCount = data.filter((r: any) => r.status === "sent").length;
   const stats = {
-    sent:       data.filter((r: any) => r.status === "sent").length,
-    opened:     data.filter((r: any) => r.opened_at).length,
-    clicked:    data.filter((r: any) => r.clicked_at).length,
-    bounced:    data.filter((r: any) => r.status === "bounced").length,
+    sent:    sentCount,
+    opened:  data.filter((r: any) => r.opened_at).length,
+    clicked: data.filter((r: any) => r.clicked_at).length,
+    bounced: data.filter((r: any) => r.status === "bounced").length,
   };
 
-  await supabase.from("campaigns").update({ stats }).eq("id", campaignId);
+  // sent_count is derived from logs (single source of truth, no double-counting)
+  await supabase.from("campaigns")
+    .update({ stats, sent_count: sentCount })
+    .eq("id", campaignId);
 }
 
 function json(body: unknown, status = 200) {

@@ -87,7 +87,20 @@ function FormTemplates({ forms, onSelect, selectedId }: { forms: FormRow[]; onSe
 // Form Builder
 function FormBuilder({ form, onUpdate }: { form: FormRow; onUpdate: (id: string, updates: Partial<FormRow>) => void }) {
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const selectedQuestion = form.questions.find((q) => q.id === selectedQuestionId) || null;
+
+  const reorderQuestions = (fromId: string, toId: string) => {
+    if (fromId === toId) return;
+    const qs = [...form.questions];
+    const fromIdx = qs.findIndex((q) => q.id === fromId);
+    const toIdx   = qs.findIndex((q) => q.id === toId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const [moved] = qs.splice(fromIdx, 1);
+    qs.splice(toIdx, 0, moved);
+    onUpdate(form.id, { questions: qs });
+  };
 
   const updateQuestion = (qId: string, updates: Partial<FormQuestion>) => {
     const newQuestions = form.questions.map((q) => (q.id === qId ? { ...q, ...updates } : q));
@@ -118,7 +131,21 @@ function FormBuilder({ form, onUpdate }: { form: FormRow; onUpdate: (id: string,
         <ScrollArea className="flex-1">
           <div className="p-2 space-y-1">
             {form.questions.map((q, idx) => (
-              <div key={q.id} className={`flex items-center gap-2 p-2 rounded-md cursor-pointer text-sm transition-colors ${selectedQuestionId === q.id ? "bg-accent text-accent-foreground" : "hover:bg-muted"}`} onClick={() => setSelectedQuestionId(q.id)}>
+              <div
+                key={q.id}
+                draggable
+                onDragStart={() => setDragId(q.id)}
+                onDragOver={(e) => { e.preventDefault(); setDragOverId(q.id); }}
+                onDragLeave={() => setDragOverId(null)}
+                onDrop={() => { if (dragId) reorderQuestions(dragId, q.id); setDragId(null); setDragOverId(null); }}
+                onDragEnd={() => { setDragId(null); setDragOverId(null); }}
+                className={`flex items-center gap-2 p-2 rounded-md cursor-grab active:cursor-grabbing text-sm transition-colors
+                  ${selectedQuestionId === q.id ? "bg-accent text-accent-foreground" : "hover:bg-muted"}
+                  ${dragOverId === q.id && dragId !== q.id ? "border-t-2 border-primary" : ""}
+                  ${dragId === q.id ? "opacity-40" : ""}
+                `}
+                onClick={() => setSelectedQuestionId(q.id)}
+              >
                 <GripVertical className="h-3 w-3 text-muted-foreground shrink-0" />
                 <span className="text-muted-foreground shrink-0 text-xs w-5">{idx + 1}.</span>
                 {QUESTION_ICONS[QUESTION_TYPE_CONFIG[q.type].icon]}

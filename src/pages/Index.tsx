@@ -31,7 +31,8 @@ type ContactRow = {
   first_name: string;
   last_name: string;
   email: string | null;
-  status: string;
+  status: string;          // lead | client | active | inactive | archived
+  pipeline_stage: string;  // new_lead | contacted | qualified | proposal | negotiation | won | lost
   created_at: string;
 };
 
@@ -167,7 +168,7 @@ const Index = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("patients")
-        .select("id, first_name, last_name, email, status, created_at")
+        .select("id, first_name, last_name, email, status, pipeline_stage, created_at")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as ContactRow[];
@@ -210,7 +211,7 @@ const Index = () => {
   const stageMutation = useMutation({
     mutationFn: async ({ id, stage }: { id: string; stage: string }) => {
       const { error } = await supabase
-        .from("patients").update({ status: stage }).eq("id", id);
+        .from("patients").update({ pipeline_stage: stage }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: QK.patients }),
@@ -220,19 +221,21 @@ const Index = () => {
   const handleDrop = (targetStage: string) => {
     if (!draggingId || !targetStage) return;
     const contact = contacts.find((c) => c.id === draggingId);
-    if (!contact || contact.status === targetStage) { setDraggingId(null); return; }
+    if (!contact || contact.pipeline_stage === targetStage) { setDraggingId(null); return; }
     stageMutation.mutate({ id: draggingId, stage: targetStage });
     setDraggingId(null);
   };
 
-  // Group contacts by stage
+  // Group contacts by pipeline stage
   const byStage = Object.fromEntries(
-    PIPELINE_STAGES.map((s) => [s.key, contacts.filter((c) => c.status === s.key)])
+    PIPELINE_STAGES.map((s) => [s.key, contacts.filter((c) => c.pipeline_stage === s.key)])
   ) as Record<PipelineStage, ContactRow[]>;
 
   // KPIs
-  const activeContacts   = contacts.filter((c) => c.status === "active").length;
-  const activeCampaigns  = campaigns.filter((c) => c.status === "active" || c.status === "scheduled").length;
+  // Active = in pipeline (not yet won or lost)
+  const activeContacts   = contacts.filter((c) => c.pipeline_stage !== "won" && c.pipeline_stage !== "lost").length;
+  // Live = scheduled or currently sending (no "active" status exists)
+  const activeCampaigns  = campaigns.filter((c) => c.status === "scheduled" || c.status === "sending").length;
   const totalSent        = campaigns.reduce((s, c) => s + ((c as any).sent_count || 0), 0);
   const pendingLeads     = (submissions as any[]).filter((s) => s.review_status === "pending").length;
   const convertedReferrals = referrals.filter((r: any) => r.status === "converted").length;
@@ -426,7 +429,7 @@ const Index = () => {
                             </div>
                           </div>
                           <Badge variant="outline" className={`text-[10px] ${
-                            c.status === "active"    ? "border-emerald-200 text-emerald-700 bg-emerald-500/10" :
+                            c.status === "sending"   ? "border-emerald-200 text-emerald-700 bg-emerald-500/10" :
                             c.status === "scheduled" ? "border-blue-200 text-blue-700 bg-blue-500/10" :
                             "border-border text-muted-foreground"
                           }`}>{c.status}</Badge>
