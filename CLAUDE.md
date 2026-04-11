@@ -12,7 +12,12 @@ npm run lint         # ESLint check
 npm run test         # Run tests once (Vitest)
 npm run test:watch   # Watch mode tests
 npm run preview      # Preview production build locally
+
+# Run a single test file
+npx vitest run src/path/to/file.test.ts
 ```
+
+Test coverage is currently minimal — only a placeholder `src/test/example.test.ts` exists. New feature tests go in `src/**/*.{test,spec}.{ts,tsx}`.
 
 ## Architecture Overview
 
@@ -31,6 +36,8 @@ npm run preview      # Preview production build locally
 ### Path Alias
 
 `@/*` maps to `src/*` (configured in `vite.config.ts` and `tsconfig.json`).
+
+> **TypeScript note:** `strictNullChecks` and `noUnusedLocals`/`noUnusedParameters` are disabled in `tsconfig.json`. Don't rely on null-safety enforcement from the compiler.
 
 ### Auth Flow
 
@@ -71,6 +78,8 @@ const { data: contacts = [] } = useQuery({
 ```
 
 Mutations call `queryClient.invalidateQueries(...)` on success to sync the UI.
+
+QueryClient defaults (set in `src/App.tsx`): `retry: 1`, `staleTime: 30_000`.
 
 ### Key Tables
 
@@ -115,6 +124,17 @@ Email provider API key is stored in `practice_settings.email_provider_api_key` w
 - `src/pages/Analytics.tsx` (~460 lines) — pipeline funnel, email engagement, inquiry stats (3 tabs, all live data)
 - `src/components/CampaignRecipients.tsx` (~456 lines) — recipient picker: Customers tab, Segments tab (with client-side rule evaluator), CSV tab, Manual tab
 - `src/components/BulkImportDialog.tsx` (~408 lines) — papaparse CSV import with column mapping, chunked upsert, progress
+
+### Routing Notes
+
+- `/intake` redirects to `/forms`; `/patients` redirects to `/contacts` (legacy URL aliases in `src/App.tsx`)
+- All routes except `/login` are wrapped in `ProtectedRoute`
+
+### Key Utilities & Conventions
+
+- **`cn(...)`** — className merging via `clsx` + `tailwind-merge`; import from `@/lib/utils`
+- **Toasts** — use `sonner`'s `toast()` (imported from `sonner`), not the shadcn `useToast` hook, for new code
+- **Config maps** — `src/lib/types.ts` exports `CATEGORY_CONFIG`, `STATUS_CONFIG`, `CAMPAIGN_STATUS_CONFIG`, and others for label/color lookups on enum-like fields
 
 ### Fonts & Theme
 
