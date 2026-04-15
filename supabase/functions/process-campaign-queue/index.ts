@@ -1,8 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
+const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") ?? "*";
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
@@ -14,10 +15,37 @@ interface EmailPayload {
   toName:  string | null;
   subject: string;
   html:    string;
+  text:    string;       // plain-text fallback (required by CAN-SPAM / good deliverability)
   from:    string;       // "Name <email@domain.com>"
   replyTo?: string;
   listUnsubscribeUrl: string;
   trackingId: string;
+}
+
+/** Replace {{variable}} tokens in a template with recipient-specific values. */
+function substituteVars(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? `{{${key}}}`);
+}
+
+/** Strip HTML tags to produce a plain-text fallback. */
+function htmlToText(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "- ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 interface SendResult {
@@ -38,6 +66,7 @@ async function sendViaResend(apiKey: string, payload: EmailPayload): Promise<Sen
       to:      payload.toName ? [`${payload.toName} <${payload.to}>`] : [payload.to],
       subject: payload.subject,
       html:    payload.html,
+      text:    payload.text,
       headers: {
         "List-Unsubscribe":      `<${payload.listUnsubscribeUrl}>`,
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
@@ -71,7 +100,10 @@ async function sendViaSendGrid(apiKey: string, payload: EmailPayload): Promise<S
       }],
       from:    { email: fromEmail, ...(fromName ? { name: fromName } : {}) },
       subject: payload.subject,
-      content: [{ type: "text/html", value: payload.html }],
+      content: [
+        { type: "text/plain", value: payload.text },
+        { type: "text/html",  value: payload.html },
+      ],
       headers: {
         "List-Unsubscribe":      `<${payload.listUnsubscribeUrl}>`,
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
@@ -341,18 +373,30 @@ serve(async (req) => {
           continue;
         }
 
+        // ── Substitute template variables ─────────────────────────────────
+        const templateVars: Record<string, string> = {
+          first_name:    recipient.name?.split(" ")[0] ?? "",
+          last_name:     recipient.name?.split(" ").slice(1).join(" ") ?? "",
+          name:          recipient.name ?? "",
+          email:         recipient.email,
+          campaign_name: campaign.name ?? "",
+        };
+        const resolvedSubject  = substituteVars(subject, templateVars);
+        const resolvedBodyHtml = substituteVars(bodyHtml, templateVars);
+
         // ── Build tracking URLs ───────────────────────────────────────────
         const trackingId   = crypto.randomUUID();
         const trackBase    = `${supabaseUrl}/functions/v1`;
         const trackPixel   = `${trackBase}/track-email?t=${trackingId}&a=open`;
         const unsubLink    = `${trackBase}/campaign-unsubscribe?t=${trackingId}`;
 
-        // Wrap href links for click tracking
-        const trackedBody = bodyHtml.replace(
-          /href="(https?:\/\/[^"]+)"/g,
-          (_match: string, url: string) => {
+        // Wrap href links for click tracking.
+        // Handles both double-quoted and single-quoted href attributes.
+        const trackedBody = resolvedBodyHtml.replace(
+          /href=(["'])(https?:\/\/[^"'\s>]+)\1/gi,
+          (_match: string, quote: string, url: string) => {
             const clickUrl = `${trackBase}/track-email?t=${trackingId}&a=click&url=${encodeURIComponent(url)}`;
-            return `href="${clickUrl}"`;
+            return `href=${quote}${clickUrl}${quote}`;
           }
         );
 
@@ -363,6 +407,8 @@ serve(async (req) => {
   You received this email because you opted in.<br/>
   <a href="${unsubLink}" style="color:#9ca3af;text-decoration:underline;">Unsubscribe</a>
 </div>`;
+
+        const finalText = htmlToText(resolvedBodyHtml) + `\n\n---\nUnsubscribe: ${unsubLink}`;
 
         // ── Insert send log (queued) ───────────────────────────────────────
         await supabase.from("campaign_send_log").insert({
@@ -377,8 +423,9 @@ serve(async (req) => {
         const sendResult = await sendEmail(emailProvider, emailApiKey, {
           to:                 recipient.email,
           toName:             recipient.name,
-          subject,
+          subject:            resolvedSubject,
           html:               finalHtml,
+          text:               finalText,
           from:               fromHeader,
           listUnsubscribeUrl: unsubLink,
           trackingId,

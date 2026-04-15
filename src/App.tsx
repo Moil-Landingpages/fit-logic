@@ -1,4 +1,4 @@
-import { Component, type ReactNode } from "react";
+import { Component, lazy, Suspense, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -8,18 +8,30 @@ import { Layout } from "@/components/Layout";
 import { Button } from "@/components/ui/button";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import Index from "./pages/Index";
-import FAQManager from "./pages/FAQManager";
-import IntakeForms from "./pages/IntakeForms";
-import Patients from "./pages/Patients";
-import Campaigns from "./pages/Campaigns";
-import Analytics from "./pages/Analytics";
-import Settings from "./pages/Settings";
-import Referrals from "./pages/Referrals";
-import Inbox from "./pages/Inbox";
-import Retreat from "./pages/Retreat";
+
+// Eagerly loaded — needed immediately on first paint
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
+import Index from "./pages/Index";
+
+// Lazily loaded — only fetched when the user navigates to that route
+const FAQManager  = lazy(() => import("./pages/FAQManager"));
+const IntakeForms = lazy(() => import("./pages/IntakeForms"));
+const Patients    = lazy(() => import("./pages/Patients"));
+const Campaigns   = lazy(() => import("./pages/Campaigns"));
+const Analytics   = lazy(() => import("./pages/Analytics"));
+const Settings    = lazy(() => import("./pages/Settings"));
+const Referrals   = lazy(() => import("./pages/Referrals"));
+const Inbox       = lazy(() => import("./pages/Inbox"));
+const Retreat     = lazy(() => import("./pages/Retreat"));
+
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+    </div>
+  );
+}
 
 // ─── Error Boundary ────────────────────────────────────────────────────────────
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -78,21 +90,23 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <Layout>
-                      <Routes>
-                        <Route path="/" element={<Index />} />
-                        <Route path="/inbox" element={<Inbox />} />
-                        <Route path="/faqs" element={<FAQManager />} />
-                        <Route path="/forms" element={<IntakeForms />} />
-                        <Route path="/intake" element={<Navigate to="/forms" replace />} />
-                        <Route path="/contacts" element={<Patients />} />
-                        <Route path="/patients" element={<Navigate to="/contacts" replace />} />
-                        <Route path="/campaigns" element={<Campaigns />} />
-                        <Route path="/analytics" element={<Analytics />} />
-                        <Route path="/settings" element={<Settings />} />
-                        <Route path="/referrals" element={<Referrals />} />
-                        <Route path="/retreat" element={<Retreat />} />
-                        <Route path="*" element={<NotFound />} />
-                      </Routes>
+                      <Suspense fallback={<PageLoader />}>
+                        <Routes>
+                          <Route path="/" element={<Index />} />
+                          <Route path="/inbox" element={<Inbox />} />
+                          <Route path="/faqs" element={<FAQManager />} />
+                          <Route path="/forms" element={<IntakeForms />} />
+                          <Route path="/intake" element={<Navigate to="/forms" replace />} />
+                          <Route path="/contacts" element={<Patients />} />
+                          <Route path="/patients" element={<Navigate to="/contacts" replace />} />
+                          <Route path="/campaigns" element={<Campaigns />} />
+                          <Route path="/analytics" element={<Analytics />} />
+                          <Route path="/settings" element={<Settings />} />
+                          <Route path="/referrals" element={<Referrals />} />
+                          <Route path="/retreat" element={<Retreat />} />
+                          <Route path="*" element={<NotFound />} />
+                        </Routes>
+                      </Suspense>
                     </Layout>
                   </ProtectedRoute>
                 }

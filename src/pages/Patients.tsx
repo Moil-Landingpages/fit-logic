@@ -51,6 +51,11 @@ type Patient = {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  // CRM fields (migration 20260406000001)
+  pipeline_stage: string | null;
+  lead_source: string | null;
+  company: string | null;
+  deal_value: number | null;
 };
 
 const STATUS_MAP: Record<string, { label: string; color: string; dot: string }> = {
@@ -304,20 +309,21 @@ export default function Patients() {
   const filtered = useMemo(() => {
     let result = allPatients;
     if (statusFilter !== "all") result = result.filter(p => p.status === statusFilter);
-    if (stageFilter !== "all") result = result.filter(p => p.status === stageFilter);
-    if (sourceFilter !== "all") result = result; // lead_source not in DB yet
+    if (stageFilter !== "all") result = result.filter(p => p.pipeline_stage === stageFilter);
+    if (sourceFilter !== "all") result = result.filter(p => p.lead_source === sourceFilter);
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(p =>
         p.first_name.toLowerCase().includes(q) || p.last_name.toLowerCase().includes(q) ||
-        (p.email?.toLowerCase().includes(q) ?? false) || (p.phone?.includes(q) ?? false)
+        (p.email?.toLowerCase().includes(q) ?? false) || (p.phone?.includes(q) ?? false) ||
+        (p.company?.toLowerCase().includes(q) ?? false)
       );
     }
     if (sortBy === "name") result = [...result].sort((a, b) => a.first_name.localeCompare(b.first_name));
-    else if (sortBy === "company") result = [...result].sort((a, b) => a.first_name.localeCompare(b.first_name));
-    else if (sortBy === "deal_value") result = [...result].sort((a, b) => a.first_name.localeCompare(b.first_name));
+    else if (sortBy === "company") result = [...result].sort((a, b) => (a.company ?? "").localeCompare(b.company ?? ""));
+    else if (sortBy === "deal_value") result = [...result].sort((a, b) => (b.deal_value ?? 0) - (a.deal_value ?? 0));
     return result;
-  }, [patients, statusFilter, stageFilter, sourceFilter, search, sortBy]);
+  }, [allPatients, statusFilter, stageFilter, sourceFilter, search, sortBy]);
 
   // ─── DETAIL VIEW ───
   if (viewing) {
@@ -344,9 +350,6 @@ export default function Patients() {
               </h1>
               <div className="flex items-center gap-2">
                 <StatusPill status={p.status} />
-                <div className="flex items-center gap-2">
-                <StatusPill status={p.status} />
-                </div>
               </div>
             </div>
           </div>

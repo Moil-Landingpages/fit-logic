@@ -5,7 +5,7 @@ import { QK } from "@/lib/queryKeys";
 import { useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, Mail, TrendingUp, ArrowRight,
-  Share2, DollarSign, Plus, GripVertical, Target, Trophy,
+  Share2, DollarSign, Plus, GripVertical, Target, Trophy, AlertTriangle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -162,7 +162,7 @@ const Index = () => {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [tab, setTab] = useState<"pipeline" | "summary">("pipeline");
 
-  const { data: contacts = [], isLoading: contactsLoading } = useQuery({
+  const { data: contacts = [], isLoading: contactsLoading, isError: contactsError } = useQuery({
     queryKey: QK.patients,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -253,6 +253,16 @@ const Index = () => {
     { label: "Emails Sent",       value: totalSent,                    icon: Mail,             color: "text-blue-600",    bg: "bg-blue-500/10",    action: () => navigate("/campaigns") },
     { label: "Referrals Won",     value: convertedReferrals,           icon: Share2,           color: "text-orange-600",  bg: "bg-orange-500/10",  action: () => navigate("/referrals") },
   ];
+
+  if (contactsError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-3 text-center p-8">
+        <AlertTriangle className="h-10 w-10 text-destructive/70" />
+        <h2 className="font-heading text-lg font-semibold">Failed to load pipeline</h2>
+        <p className="text-sm text-muted-foreground">Check your connection and try refreshing the page.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

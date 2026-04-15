@@ -6,10 +6,70 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 
+// Webhook endpoints are server-to-server — no browser CORS needed.
+// We accept any origin but only after validating the provider signature.
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "content-type, authorization, x-webhook-signature",
+  "Access-Control-Allow-Headers": "content-type, authorization, x-webhook-signature, svix-id, svix-timestamp, svix-signature",
 };
+
+// ---------------------------------------------------------------------------
+// Signature verification helpers
+// ---------------------------------------------------------------------------
+
+/** Verify Resend webhook signature (HMAC-SHA256 via Svix) */
+async function verifyResendSignature(req: Request, rawBody: string): Promise<boolean> {
+  const secret = Deno.env.get("RESEND_WEBHOOK_SECRET");
+  if (!secret) return true; // secret not configured — skip (warn in logs)
+
+  const msgId        = req.headers.get("svix-id") ?? "";
+  const msgTimestamp = req.headers.get("svix-timestamp") ?? "";
+  const msgSig       = req.headers.get("svix-signature") ?? "";
+
+  if (!msgId || !msgTimestamp || !msgSig) return false;
+
+  // Reject messages older than 5 minutes
+  const ts = parseInt(msgTimestamp, 10);
+  if (Math.abs(Date.now() / 1000 - ts) > 300) return false;
+
+  const toSign  = `${msgId}.${msgTimestamp}.${rawBody}`;
+  const keyBytes = base64Decode(secret.replace(/^whsec_/, ""));
+  const key      = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig      = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(toSign));
+  const computed = "v1," + btoa(String.fromCharCode(...new Uint8Array(sig)));
+
+  return msgSig.split(" ").some((s) => s === computed);
+}
+
+/** Verify SendGrid webhook signature (ECDSA P-256) */
+async function verifySendGridSignature(req: Request, rawBody: string): Promise<boolean> {
+  const publicKey = Deno.env.get("SENDGRID_WEBHOOK_PUBLIC_KEY");
+  if (!publicKey) return true; // secret not configured — skip
+
+  const signature = req.headers.get("x-twilio-email-event-webhook-signature") ?? "";
+  const timestamp = req.headers.get("x-twilio-email-event-webhook-timestamp") ?? "";
+
+  if (!signature || !timestamp) return false;
+
+  try {
+    const payload = timestamp + rawBody;
+    const keyDer  = base64Decode(publicKey);
+    const key     = await crypto.subtle.importKey(
+      "spki", keyDer, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]
+    );
+    const sigBytes = base64Decode(signature);
+    return await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" }, key, sigBytes, new TextEncoder().encode(payload)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function base64Decode(b64: string): Uint8Array {
+  const bin = atob(b64);
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
 
 // ---------------------------------------------------------------------------
 // Suppression helper
@@ -78,18 +138,15 @@ async function updateCampaignStats(campaignId: string) {
   if (!rows) return;
 
   const stats = {
-    sent: rows.filter((r) => r.status !== "failed").length,
-    opened: rows.filter((r) => r.opened_at).length,
-    clicked: rows.filter((r) => r.clicked_at).length,
-    bounced: rows.filter((r) => r.status === "bounced").length,
+    sent:       rows.filter((r) => r.status !== "failed").length,
+    opened:     rows.filter((r) => r.opened_at).length,
+    clicked:    rows.filter((r) => r.clicked_at).length,
+    bounced:    rows.filter((r) => r.status === "bounced").length,
     complained: rows.filter((r) => r.complaint_at).length,
-    failed: rows.filter((r) => r.status === "failed").length,
+    failed:     rows.filter((r) => r.status === "failed").length,
   };
 
-  await supabase
-    .from("campaigns")
-    .update({ stats })
-    .eq("id", campaignId);
+  await supabase.from("campaigns").update({ stats }).eq("id", campaignId);
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +163,6 @@ async function getCampaignId(trackingId: string): Promise<string | null> {
 
 // ---------------------------------------------------------------------------
 // Resend webhook handler
-// Docs: https://resend.com/docs/dashboard/webhooks/event-types
 // ---------------------------------------------------------------------------
 async function handleResend(events: unknown[]) {
   for (const event of events) {
@@ -127,10 +183,8 @@ async function handleResend(events: unknown[]) {
         const cid = await getCampaignId(trackingId);
         await suppress(email, "hard_bounce", cid ?? undefined);
       }
-      if (trackingId) {
-        const cid = await getCampaignId(trackingId);
-        if (cid) await updateCampaignStats(cid);
-      }
+      const cid = await getCampaignId(trackingId);
+      if (cid) await updateCampaignStats(cid);
     } else if (type === "email.complained") {
       await markComplained(trackingId);
       if (email) {
@@ -152,20 +206,17 @@ async function handleResend(events: unknown[]) {
 
 // ---------------------------------------------------------------------------
 // SendGrid webhook handler
-// Docs: https://docs.sendgrid.com/for-developers/tracking-events/event
-// SendGrid sends an array of event objects at the root level.
 // ---------------------------------------------------------------------------
 async function handleSendGrid(events: unknown[]) {
   for (const event of events) {
     const e = event as Record<string, unknown>;
     const type = e.event as string;
     const email = e.email as string | undefined;
-    const trackingId = e.tracking_id as string | undefined; // custom arg we pass
+    const trackingId = e.tracking_id as string | undefined;
 
     if (!trackingId) continue;
 
     if (type === "bounce") {
-      // SendGrid bounce types: "bounce" (hard), "blocked" (soft)
       const bounceType = (e.type as string) === "bounce" ? "hard_bounce" : "soft_bounce";
       await markBounced(trackingId, bounceType);
       if (email && bounceType === "hard_bounce") {
@@ -202,14 +253,39 @@ serve(async (req) => {
   }
 
   try {
-    const body = await req.json();
+    const rawBody = await req.text();
+    let body: unknown;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return new Response(JSON.stringify({ error: "Invalid JSON" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-    // Detect provider by payload shape:
-    // - Resend wraps each event as { type: "email.*", data: {...} }
-    // - SendGrid sends a flat array of { event: "bounce"|"open"|... }
+    // Detect provider by payload shape
     const isResend = Array.isArray(body)
       ? (body[0] as Record<string, unknown>)?.type?.toString().startsWith("email.")
       : (body as Record<string, unknown>)?.type?.toString().startsWith("email.");
+
+    // Verify provider signature before processing
+    if (isResend) {
+      const valid = await verifyResendSignature(req, rawBody);
+      if (!valid) {
+        console.warn("Resend webhook signature verification failed");
+        return new Response(JSON.stringify({ error: "Invalid signature" }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    } else {
+      const valid = await verifySendGridSignature(req, rawBody);
+      if (!valid) {
+        console.warn("SendGrid webhook signature verification failed");
+        return new Response(JSON.stringify({ error: "Invalid signature" }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     const events: unknown[] = Array.isArray(body) ? body : [body];
 

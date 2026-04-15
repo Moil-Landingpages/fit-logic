@@ -81,24 +81,26 @@ function KpiCard({
 
 export default function Analytics() {
   // ── Patients / Pipeline ───────────────────────────────────────────────────
-  const { data: patients = [] } = useQuery({
+  const { data: patients = [], isError: patientsError } = useQuery({
     queryKey: QK.patients,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("patients")
         .select("id, status, created_at");
+      if (error) throw error;
       return data ?? [];
     },
   });
 
   // ── Campaigns ────────────────────────────────────────────────────────────
-  const { data: campaigns = [] } = useQuery({
+  const { data: campaigns = [], isError: campaignsError } = useQuery({
     queryKey: QK.campaigns,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("campaigns")
         .select("id, name, status, stats, created_at, scheduled_at")
         .order("created_at", { ascending: false });
+      if (error) throw error;
       return data ?? [];
     },
   });
@@ -126,6 +128,16 @@ export default function Analytics() {
       return data ?? [];
     },
   });
+
+  if (patientsError || campaignsError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-3 text-center p-8">
+        <AlertTriangle className="h-10 w-10 text-destructive/70" />
+        <h2 className="font-heading text-lg font-semibold">Failed to load analytics</h2>
+        <p className="text-sm text-muted-foreground">Check your connection and try refreshing the page.</p>
+      </div>
+    );
+  }
 
   // ─── Pipeline Funnel ────────────────────────────────────────────────────
   const pipelineFunnel = useMemo(() => {
