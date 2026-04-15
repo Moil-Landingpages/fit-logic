@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { QK } from "@/lib/queryKeys";
 import { useToast } from "@/hooks/use-toast";
 import {
   Share2, Copy, Plus, Check, Clock, UserCheck, Link2, Search, Trash2,
@@ -53,7 +54,7 @@ const Referrals = () => {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const { data: referrals = [] } = useQuery({
-    queryKey: ["referrals"],
+    queryKey: QK.referrals,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("referrals")
@@ -74,7 +75,7 @@ const Referrals = () => {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["referrals"] });
+      queryClient.invalidateQueries({ queryKey: QK.referrals });
       setShowCreate(false);
       setNewName("");
       setNewEmail("");
@@ -89,7 +90,7 @@ const Referrals = () => {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["referrals"] });
+      queryClient.invalidateQueries({ queryKey: QK.referrals });
       setDeletingId(null);
       toast({ title: "Referral deleted" });
     },

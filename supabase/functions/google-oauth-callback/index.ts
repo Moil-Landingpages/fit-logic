@@ -80,25 +80,40 @@ serve(async (req) => {
       return json({ error: "No recognized Google scopes were granted" }, 400);
     }
 
-    // Get the singleton settings row id
+    // Get the singleton settings row id; bootstrap one if missing so that
+    // connecting Google works on a fresh install before Settings has been saved.
     const { data: settingsRow, error: fetchErr } = await supabase
       .from("practice_settings")
       .select("id")
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    if (fetchErr || !settingsRow) {
-      return json({ error: "practice_settings row not found" }, 500);
+    if (fetchErr) {
+      console.error("Failed to read practice_settings:", fetchErr);
+      return json({ error: fetchErr.message }, 500);
     }
 
-    const { error: updateErr } = await supabase
-      .from("practice_settings")
-      .update(updates)
-      .eq("id", settingsRow.id);
-
-    if (updateErr) {
-      console.error("Failed to persist tokens:", updateErr);
-      return json({ error: updateErr.message }, 500);
+    let settingsId = settingsRow?.id;
+    if (!settingsId) {
+      const { data: inserted, error: insErr } = await supabase
+        .from("practice_settings")
+        .insert(updates)
+        .select("id")
+        .single();
+      if (insErr || !inserted) {
+        console.error("Failed to bootstrap practice_settings:", insErr);
+        return json({ error: insErr?.message ?? "could not create settings row" }, 500);
+      }
+      settingsId = inserted.id;
+    } else {
+      const { error: updateErr } = await supabase
+        .from("practice_settings")
+        .update(updates)
+        .eq("id", settingsId);
+      if (updateErr) {
+        console.error("Failed to persist tokens:", updateErr);
+        return json({ error: updateErr.message }, 500);
+      }
     }
 
     return json({

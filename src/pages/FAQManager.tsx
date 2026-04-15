@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { QK } from "@/lib/queryKeys";
 import { Plus, Pencil, Trash2, Search, ToggleLeft, ToggleRight, Sparkles, ChevronDown, ChevronRight, MessageSquare, Zap, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,7 +42,7 @@ const FAQManager = () => {
   const [aiGenerating, setAiGenerating] = useState(false);
 
   const { data: faqs = [] } = useQuery({
-    queryKey: ["faqs"],
+    queryKey: QK.faqs,
     queryFn: async () => {
       const { data, error } = await supabase.from("faqs").select("*").order("category", { ascending: true });
       if (error) throw error;
@@ -60,7 +61,7 @@ const FAQManager = () => {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["faqs"] });
+      queryClient.invalidateQueries({ queryKey: QK.faqs });
       setDialogOpen(false);
       toast.success(editingFaq ? "FAQ updated" : "FAQ created");
     },
@@ -73,7 +74,7 @@ const FAQManager = () => {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["faqs"] });
+      queryClient.invalidateQueries({ queryKey: QK.faqs });
       setDeletingFaqId(null);
       toast.success("FAQ deleted");
     },
@@ -84,7 +85,7 @@ const FAQManager = () => {
       const { error } = await supabase.from("faqs").update({ active }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["faqs"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: QK.faqs }),
   });
 
   const filtered = faqs.filter((f) => {

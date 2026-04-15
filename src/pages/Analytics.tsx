@@ -131,7 +131,7 @@ export default function Analytics() {
 
   // ── Send log (last 90 days) ───────────────────────────────────────────────
   const { data: sendLog = [] } = useQuery<SendLogRow[]>({
-    queryKey: ["send_log_analytics"],
+    queryKey: QK.sendLogAnalytics,
     queryFn: async () => {
       const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
       const { data, error } = await supabase

@@ -112,12 +112,16 @@ export type Database = {
       }
       campaign_send_log: {
         Row: {
+          bounce_type: string | null
           campaign_id: string
           clicked_at: string | null
+          complaint_at: string | null
           created_at: string
           error_message: string | null
           id: string
           opened_at: string | null
+          provider: string | null
+          provider_message_id: string | null
           recipient_id: string
           sent_at: string | null
           status: string
@@ -125,12 +129,16 @@ export type Database = {
           tracking_id: string | null
         }
         Insert: {
+          bounce_type?: string | null
           campaign_id: string
           clicked_at?: string | null
+          complaint_at?: string | null
           created_at?: string
           error_message?: string | null
           id?: string
           opened_at?: string | null
+          provider?: string | null
+          provider_message_id?: string | null
           recipient_id: string
           sent_at?: string | null
           status?: string
@@ -138,12 +146,16 @@ export type Database = {
           tracking_id?: string | null
         }
         Update: {
+          bounce_type?: string | null
           campaign_id?: string
           clicked_at?: string | null
+          complaint_at?: string | null
           created_at?: string
           error_message?: string | null
           id?: string
           opened_at?: string | null
+          provider?: string | null
+          provider_message_id?: string | null
           recipient_id?: string
           sent_at?: string | null
           status?: string
@@ -327,18 +339,21 @@ export type Database = {
       }
       email_suppressions: {
         Row: {
+          campaign_id: string | null
           created_at: string
           email: string
           id: string
           reason: string | null
         }
         Insert: {
+          campaign_id?: string | null
           created_at?: string
           email: string
           id?: string
           reason?: string | null
         }
         Update: {
+          campaign_id?: string | null
           created_at?: string
           email?: string
           id?: string

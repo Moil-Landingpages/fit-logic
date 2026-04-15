@@ -207,6 +207,7 @@ const Campaigns_Page = () => {
           ...campaignData, status: "draft",
         }).select().single();
         if (error) throw error;
+        if (!newCampaign) throw new Error("Campaign insert returned no row");
         campaignId = newCampaign.id;
 
         // Save recipients (new campaign — all are new)

@@ -204,7 +204,7 @@ export default function Patients() {
 
   // Campaign participation query for detail view
   const { data: contactCampaigns = [] } = useQuery<ContactCampaignRow[]>({
-    queryKey: ["contact-campaigns", viewing?.id],
+    queryKey: QK.contactCampaigns(viewing?.id),
     enabled: !!viewing,
     queryFn: async () => {
       const { data, error } = await supabase

@@ -706,11 +706,19 @@ const Settings = () => {
 
   const updateSettings = useMutation({
     mutationFn: async (updates: Partial<PracticeSettings>) => {
-      if (settings.id) {
+      // Double-check the DB — `settings.id` may be stale or from the fallback
+      // default, which would cause a duplicate INSERT on subsequent saves.
+      const { data: existing } = await supabase
+        .from("practice_settings")
+        .select("id")
+        .limit(1)
+        .maybeSingle();
+
+      if (existing?.id) {
         const { error } = await supabase
           .from("practice_settings")
           .update(updates)
-          .eq("id", settings.id);
+          .eq("id", existing.id);
         if (error) throw error;
       } else {
         const { error } = await supabase

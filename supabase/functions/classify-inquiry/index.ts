@@ -241,13 +241,13 @@ Respond in JSON format:
       if (emailApiKey && fromAddress && settings?.escalation_staff_id) {
         const { data: staffMember } = await sb
           .from("staff")
-          .select("email, first_name")
+          .select("email, name")
           .eq("id", settings.escalation_staff_id)
           .maybeSingle();
 
         if (staffMember?.email) {
           try {
-            const html = `<p>Hi ${esc(staffMember.first_name ?? "there")},</p>
+            const html = `<p>Hi ${esc(staffMember.name ?? "there")},</p>
 <p>A new inquiry requires your attention:</p>
 <ul>
   <li><strong>From:</strong> ${esc(inquiry.patient_name)} (${esc(inquiry.patient_email ?? "no email")})</li>

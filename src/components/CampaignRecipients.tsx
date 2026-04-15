@@ -89,7 +89,7 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
   const fileRef = useRef<HTMLInputElement>(null);
 
   const { data: customers = [] } = useQuery({
-    queryKey: ["customers-for-campaign"],
+    queryKey: QK.customersForCampaign,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("patients")
@@ -111,7 +111,7 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
 
   // All patients (for segment evaluation) — loaded lazily only when a segment is selected
   const { data: allPatientsForSeg = [] } = useQuery({
-    queryKey: ["patients-for-segment", selectedSegmentId],
+    queryKey: QK.patientsForSegment(selectedSegmentId),
     enabled: !!selectedSegmentId,
     queryFn: async () => {
       const { data } = await supabase.from("patients").select("*").not("email", "is", null);
@@ -148,7 +148,7 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
 
   // Fetch emails already in active campaigns/sequences (not draft, not completed)
   const { data: activeCampaignEmails = [] } = useQuery({
-    queryKey: ["active-campaign-emails", campaignId],
+    queryKey: QK.activeCampaignEmails(campaignId),
     queryFn: async () => {
       // First get active campaign IDs
       const { data: activeCampaigns, error: cErr } = await supabase

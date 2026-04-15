@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { QK } from "@/lib/queryKeys";
 import type { TablesUpdate } from "@/integrations/supabase/types";
 import { toast } from "sonner";
 import {
@@ -306,7 +307,7 @@ const IntakeForms = () => {
   const [previewForm, setPreviewForm] = useState<FormRow | null>(null);
 
   const { data: forms = [] } = useQuery({
-    queryKey: ["intake_forms"],
+    queryKey: QK.intakeForms,
     queryFn: async () => {
       const { data, error } = await supabase.from("intake_forms").select("*").order("created_at", { ascending: false });
       if (error) throw error;
@@ -315,7 +316,7 @@ const IntakeForms = () => {
   });
 
   const { data: submissions = [] } = useQuery({
-    queryKey: ["intake_submissions"],
+    queryKey: QK.intakeSubmissions,
     queryFn: async () => {
       const { data, error } = await supabase.from("intake_submissions").select("*").order("created_at", { ascending: false });
       if (error) throw error;
@@ -335,7 +336,7 @@ const IntakeForms = () => {
       }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["intake_forms"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: QK.intakeForms }),
   });
 
   const addFormMut = useMutation({
@@ -350,7 +351,7 @@ const IntakeForms = () => {
       return data;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["intake_forms"] });
+      queryClient.invalidateQueries({ queryKey: QK.intakeForms });
       setSelectedFormId(data.id);
     },
   });
@@ -360,19 +361,19 @@ const IntakeForms = () => {
       const { error } = await supabase.from("intake_submissions").update(updates).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["intake_submissions"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: QK.intakeSubmissions }),
   });
 
   const handleFormUpdate = (id: string, updates: Partial<FormRow>) => {
     // Optimistic update
-    queryClient.setQueryData(["intake_forms"], (old: FormRow[] | undefined) =>
+    queryClient.setQueryData(QK.intakeForms, (old: FormRow[] | undefined) =>
       old?.map((f) => (f.id === id ? { ...f, ...updates } : f)) || []
     );
     updateFormMut.mutate({ id, updates });
   };
 
   const handleSubmissionUpdate = (id: string, updates: Record<string, unknown>) => {
-    queryClient.setQueryData(["intake_submissions"], (old: SubmissionRow[] | undefined) =>
+    queryClient.setQueryData(QK.intakeSubmissions, (old: SubmissionRow[] | undefined) =>
       old?.map((s) => (s.id === id ? { ...s, ...updates } : s)) || []
     );
     updateSubmissionMut.mutate({ id, updates: updates as TablesUpdate<"intake_submissions"> });

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { QK } from "@/lib/queryKeys";
 import { CATEGORY_CONFIG, type InquiryCategory } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -63,7 +64,7 @@ type CampaignRecipientRow = {
 
 export function PatientTimeline({ patientId }: { patientId: string }) {
   const { data: events = [], isLoading } = useQuery({
-    queryKey: ["patient-timeline", patientId],
+    queryKey: QK.patientTimeline(patientId),
     queryFn: async () => {
       const [inquiriesRes, submissionsRes, recipientsRes] = await Promise.all([
         supabase
