@@ -20,3 +20,12 @@ CREATE POLICY "Authenticated access campaign_unsubscribes"
 CREATE UNIQUE INDEX IF NOT EXISTS patients_email_unique
   ON patients (email)
   WHERE email IS NOT NULL;
+
+-- email_suppressions has a unique index on lower(email), but the email-webhook
+-- edge function upserts with `onConflict: "email"`. PostgREST's onConflict
+-- targets need to match a constraint on that exact column, so the expression
+-- index didn't satisfy it — every bounce/complaint webhook errored out.
+-- The edge function already lowercases emails before insert, so a constraint
+-- on the raw `email` column is equivalent for our access pattern.
+CREATE UNIQUE INDEX IF NOT EXISTS email_suppressions_email_unique
+  ON email_suppressions (email);

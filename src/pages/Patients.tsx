@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { QK } from "@/lib/queryKeys";
@@ -76,11 +77,15 @@ const LEAD_SOURCE_MAP: Record<string, { label: string; color: string }> = {
 
 function formatDate(d: string | null) {
   if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function relativeDate(d: string) {
-  const diff = Date.now() - new Date(d).getTime();
+  const t = new Date(d).getTime();
+  if (!Number.isFinite(t)) return "—";
+  const diff = Date.now() - t;
   const days = Math.floor(diff / 86400000);
   if (days === 0) return "Today";
   if (days === 1) return "Yesterday";
@@ -190,6 +195,22 @@ export default function Patients() {
       }
     }
   }, [patients, page]);
+
+  // Support deep-linking to a specific contact via /contacts?id=<uuid>
+  // (used from the kanban cards on Index.tsx).
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const targetId = searchParams.get("id");
+    if (!targetId) return;
+    const match = allPatients.find((p) => p.id === targetId);
+    if (match) {
+      setViewing(match);
+      // Drop the param so refresh doesn't keep forcing the detail view open.
+      const next = new URLSearchParams(searchParams);
+      next.delete("id");
+      setSearchParams(next, { replace: true });
+    }
+  }, [allPatients, searchParams, setSearchParams]);
 
   type ContactCampaignRow = {
     id: string;

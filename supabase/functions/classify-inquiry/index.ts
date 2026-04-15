@@ -94,7 +94,34 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const apiKey = Deno.env.get("LOVABLE_API_KEY")!;
+    const anonKey    = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
+    const apiKey     = Deno.env.get("LOVABLE_API_KEY")!;
+
+    // Require a signed-in user. We use the service-role client below to
+    // do the actual writes (so RLS isn't in the way), but first we verify
+    // the caller's JWT so that anonymous traffic can't fire escalation
+    // emails or trigger auto-responses.
+    const authHeader = req.headers.get("authorization") ?? "";
+    const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+    if (!bearer) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    if (anonKey) {
+      const authClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: `Bearer ${bearer}` } },
+      });
+      const { data: userRes, error: userErr } = await authClient.auth.getUser();
+      if (userErr || !userRes?.user) {
+        return new Response(
+          JSON.stringify({ error: "Unauthorized" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     const sb = createClient(supabaseUrl, serviceKey);
 
     // Fetch the inquiry
@@ -107,7 +134,7 @@ serve(async (req) => {
 
     // Fetch practice settings (email provider) and active FAQs in parallel
     const [{ data: settings }, { data: faqs }] = await Promise.all([
-      sb.from("practice_settings").select("email_provider, email_provider_api_key, email_api_key_secret_id, email_from_address, email_from_name, escalation_staff_id").limit(1).single(),
+      sb.from("practice_settings").select("email_provider, email_provider_api_key, email_api_key_secret_id, email_from_address, email_from_name, escalation_staff_id").limit(1).maybeSingle(),
       sb.from("faqs").select("*").eq("active", true),
     ]);
 

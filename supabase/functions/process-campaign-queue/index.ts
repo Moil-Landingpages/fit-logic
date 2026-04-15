@@ -141,13 +141,27 @@ serve(async (req) => {
     const fromHeader = fromName ? `${fromName} <${fromAddress}>` : fromAddress;
 
     // ── Determine current time in practice timezone ────────────────────────
+    // Using Intl.DateTimeFormat is the only reliable way to get wall-clock
+    // values in an arbitrary timezone from Deno. `new Date(toLocaleString())`
+    // depends on the runtime's local TZ and breaks on non-UTC hosts.
     const now = new Date();
-    // Convert UTC now to practice local time for business-hours checking
-    const localTimeStr = now.toLocaleString("en-US", { timeZone: practiceTimezone });
-    const localNow     = new Date(localTimeStr);
-    const currentHour  = localNow.getHours();
-    const dayNames     = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const currentDay   = dayNames[localNow.getDay()];
+    const tzParts = new Intl.DateTimeFormat("en-US", {
+      timeZone: practiceTimezone,
+      hour12:   false,
+      hour:     "2-digit",
+      weekday:  "short",
+    }).formatToParts(now);
+    const tzPart = (t: string) => tzParts.find((p) => p.type === t)?.value ?? "";
+    // Intl returns 24 as "24" at midnight — normalize to 0.
+    const rawHour      = parseInt(tzPart("hour"), 10);
+    const currentHour  = Number.isFinite(rawHour) ? rawHour % 24 : 0;
+    const currentDay   = tzPart("weekday"); // "Sun", "Mon", ...
+
+    // Daily send limit uses a rolling 24-hour window anchored to `now`. This
+    // is a close approximation of "per calendar day in practice timezone"
+    // without the DST / arbitrary-tz conversion complexity, and is much
+    // easier to reason about than trying to compute local midnight in UTC.
+    const todayStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
     // ── Fetch scheduled/sending campaigns ─────────────────────────────────
     const { data: campaigns, error: campErr } = await supabase
@@ -194,10 +208,8 @@ serve(async (req) => {
         continue;
       }
 
-      // ── Daily send-limit check ────────────────────────────────────────────
+      // ── Daily send-limit check (rolling 24h window, see above) ──────────
       const maxSends   = campaign.max_sends_per_day ?? settings?.max_sends_per_day ?? 500;
-      const todayStart = new Date(now);
-      todayStart.setUTCHours(0, 0, 0, 0);
 
       const { count: sentToday } = await supabase
         .from("campaign_send_log")

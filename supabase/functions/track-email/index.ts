@@ -60,12 +60,25 @@ serve(async (req) => {
   try {
     const now = new Date().toISOString();
 
+    // Terminal states we must never overwrite with "opened"/"clicked": a
+    // later open pixel from an autoresponder / bot cached image shouldn't
+    // hide a bounce or spam complaint from analytics.
+    const TERMINAL_STATUSES = ["bounced", "complained", "failed"];
+
     if (action === "open") {
+      // Set opened_at regardless of current status (opens are additive data),
+      // but only promote status to "opened" if the send is still in an
+      // in-flight state.
       await supabase
         .from("campaign_send_log")
-        .update({ opened_at: now, status: "opened" })
+        .update({ opened_at: now })
         .eq("tracking_id", trackingId)
         .is("opened_at", null);
+      await supabase
+        .from("campaign_send_log")
+        .update({ status: "opened" })
+        .eq("tracking_id", trackingId)
+        .not("status", "in", `(${TERMINAL_STATUSES.join(",")},clicked)`);
 
       const { data: log } = await supabase
         .from("campaign_send_log")
@@ -85,11 +98,18 @@ serve(async (req) => {
     }
 
     if (action === "click") {
+      // Same rule as "open": record the timestamp, but only promote status
+      // if the current status isn't terminal (bounce/complaint/failed).
       await supabase
         .from("campaign_send_log")
-        .update({ clicked_at: now, status: "clicked" })
+        .update({ clicked_at: now })
         .eq("tracking_id", trackingId)
         .is("clicked_at", null);
+      await supabase
+        .from("campaign_send_log")
+        .update({ status: "clicked" })
+        .eq("tracking_id", trackingId)
+        .not("status", "in", `(${TERMINAL_STATUSES.join(",")})`);
 
       const { data: log } = await supabase
         .from("campaign_send_log")

@@ -61,12 +61,16 @@ function evaluateRule(patient: PatientRow, rule: SegmentRule): boolean {
     case "before": {
       if (!raw) return false;
       const d = resolveDate(ruleVal) ?? new Date(ruleVal);
-      return new Date(String(raw)) < d;
+      const patientDate = new Date(String(raw));
+      if (isNaN(d.getTime()) || isNaN(patientDate.getTime())) return false;
+      return patientDate < d;
     }
     case "after": {
       if (!raw) return false;
       const d = resolveDate(ruleVal) ?? new Date(ruleVal);
-      return new Date(String(raw)) > d;
+      const patientDate = new Date(String(raw));
+      if (isNaN(d.getTime()) || isNaN(patientDate.getTime())) return false;
+      return patientDate > d;
     }
     default: return true;
   }

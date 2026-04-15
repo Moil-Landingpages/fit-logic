@@ -226,7 +226,10 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
       }
 
       errList.push(...chunkErrors);
-      setProgress(Math.round(((i + CHUNK_SIZE) / rows.length) * 100));
+      if (rows.length > 0) {
+        const pct = Math.round(((i + CHUNK_SIZE) / rows.length) * 100);
+        setProgress(Math.min(100, pct));
+      }
     }
 
     setProgress(100);
