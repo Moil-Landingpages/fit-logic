@@ -151,6 +151,7 @@ function PracticeTab({ settings, onSave }: { settings: PracticeSettings; onSave:
               {DAYS.map((day) => (
                 <button
                   key={day}
+                  type="button"
                   onClick={() => toggleDay(day)}
                   className={`h-8 w-10 rounded text-xs font-medium transition-colors ${
                     form.business_days.includes(day)

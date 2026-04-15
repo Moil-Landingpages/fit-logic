@@ -82,7 +82,15 @@ Respond with ONLY the answer text, no preamble.`;
     }
 
     const aiData = await aiResponse.json();
-    const answer = aiData.choices?.[0]?.message?.content?.trim() || "";
+    const answer = aiData.choices?.[0]?.message?.content?.trim();
+    if (!answer) {
+      // Don't silently persist an empty FAQ answer — let the UI keep the
+      // user's draft and show an error instead.
+      return new Response(
+        JSON.stringify({ error: "AI returned an empty answer — please try again" }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     return new Response(
       JSON.stringify({ answer }),

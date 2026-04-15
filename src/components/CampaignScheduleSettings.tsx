@@ -86,6 +86,7 @@ export function CampaignScheduleSettings({ config, onChange, recipientCount }: C
                 {ALL_DAYS.map(day => (
                   <button
                     key={day}
+                    type="button"
                     onClick={() => toggleDay(day)}
                     className={`text-[10px] px-2 py-1 rounded-full border transition-colors ${
                       config.business_days.includes(day)

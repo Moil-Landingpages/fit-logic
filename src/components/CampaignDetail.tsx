@@ -370,6 +370,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
                 {ALL_DAYS.map(day => (
                   <button
                     key={day}
+                    type="button"
                     onClick={() => toggleDay(day)}
                     className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
                       businessDays.includes(day)
@@ -447,6 +448,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
           {sequences.map((s, i: number) => (
             <div key={s.id} className="flex items-center gap-1 shrink-0">
               <button
+                type="button"
                 onClick={() => setExpandedSequence(expandedSequence === s.id ? null : s.id)}
                 className={`flex items-center justify-center h-8 w-8 rounded-full text-xs font-bold transition-colors ${
                   expandedSequence === s.id
@@ -490,6 +492,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
                 return (
                   <Card key={s.id} className={`transition-colors ${isOpen ? "border-primary/40" : ""}`}>
                     <button
+                      type="button"
                       className="w-full flex items-center gap-3 p-4 text-left hover:bg-muted/30 transition-colors"
                       onClick={() => setExpandedSequence(isOpen ? null : s.id)}
                     >

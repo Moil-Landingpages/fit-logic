@@ -156,16 +156,19 @@ export default function Analytics() {
   });
 
   // ─── Pipeline Funnel ────────────────────────────────────────────────────
+  // Funnel stages render in the canonical order (new_lead → lost) so the
+  // chart reads left-to-right as the sales flow, regardless of which stages
+  // currently have patients.
   const pipelineFunnel = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const p of patients) {
       const s = p.pipeline_stage ?? "new_lead";
       counts[s] = (counts[s] ?? 0) + 1;
     }
-    return Object.entries(counts).map(([status, count]) => ({
-      stage: status,
-      count,
-      fill: "#0e9aa7",
+    return STAGE_ORDER.map((stage) => ({
+      stage: STAGE_LABELS[stage] ?? stage,
+      count: counts[stage] ?? 0,
+      fill:  STAGE_COLORS[stage] ?? "#0e9aa7",
     }));
   }, [patients]);
 

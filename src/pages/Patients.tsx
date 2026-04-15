@@ -712,6 +712,7 @@ export default function Patients() {
             ].map((f) => (
               <button
                 key={f.key}
+                type="button"
                 onClick={() => setStatusFilter(f.key)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                   statusFilter === f.key
