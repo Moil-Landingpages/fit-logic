@@ -49,6 +49,10 @@ type Patient = {
   status: string;
   tags: string[] | null;
   notes: string | null;
+  company: string | null;
+  deal_value: number | null;
+  lead_source: string | null;
+  pipeline_stage: string;
   created_at: string;
   updated_at: string;
 };
@@ -187,8 +191,19 @@ export default function Patients() {
     }
   }, [patients, page]);
 
+  type ContactCampaignRow = {
+    id: string;
+    status: string;
+    sent_at: string | null;
+    opened_at: string | null;
+    clicked_at: string | null;
+    current_step: number | null;
+    campaign_id: string;
+    campaigns: { name: string; status: string } | null;
+  };
+
   // Campaign participation query for detail view
-  const { data: contactCampaigns = [] } = useQuery({
+  const { data: contactCampaigns = [] } = useQuery<ContactCampaignRow[]>({
     queryKey: ["contact-campaigns", viewing?.id],
     enabled: !!viewing,
     queryFn: async () => {
@@ -198,7 +213,7 @@ export default function Patients() {
         .eq("patient_id", viewing!.id)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data || [];
+      return (data ?? []) as unknown as ContactCampaignRow[];
     },
   });
 
@@ -210,7 +225,6 @@ export default function Patients() {
     email: form.email || null,
     phone: form.phone || null,
     date_of_birth: form.date_of_birth || null,
-    gender: (form as unknown as Record<string, unknown>).gender as string || null,
     address: form.address || null,
     city: form.city || null,
     state: form.state || null,
@@ -218,6 +232,10 @@ export default function Patients() {
     status: form.status,
     tags: parseTags(form.tags),
     notes: form.notes || null,
+    company: form.company || null,
+    deal_value: form.deal_value ? Number(form.deal_value) : null,
+    lead_source: form.lead_source || null,
+    pipeline_stage: form.pipeline_stage || "new_lead",
   });
 
   const addMutation = useMutation({
@@ -255,11 +273,13 @@ export default function Patients() {
     mutationFn: async (id: string) => {
       const { error } = await supabase.from("patients").delete().eq("id", id);
       if (error) throw error;
+      return id;
     },
-    onSuccess: () => {
+    onSuccess: (deletedId) => {
       queryClient.invalidateQueries({ queryKey: QK.patients });
+      setAllPatients((prev) => prev.filter((p) => p.id !== deletedId));
+      if (viewing?.id === deletedId) setViewing(null);
       setDeleteTarget(null);
-      if (viewing?.id === deleteTarget?.id) setViewing(null);
       toast({ title: "Contact deleted" });
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -269,12 +289,16 @@ export default function Patients() {
     mutationFn: async (ids: string[]) => {
       const { error } = await supabase.from("patients").delete().in("id", ids);
       if (error) throw error;
+      return ids;
     },
-    onSuccess: () => {
+    onSuccess: (deletedIds) => {
       queryClient.invalidateQueries({ queryKey: QK.patients });
+      const deletedSet = new Set(deletedIds);
+      setAllPatients((prev) => prev.filter((p) => !deletedSet.has(p.id)));
+      const count = deletedIds.length;
       setSelected(new Set());
       setBulkDeleteOpen(false);
-      toast({ title: `${selected.size} contacts deleted` });
+      toast({ title: `${count} contact${count !== 1 ? "s" : ""} deleted` });
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -304,20 +328,27 @@ export default function Patients() {
   const filtered = useMemo(() => {
     let result = allPatients;
     if (statusFilter !== "all") result = result.filter(p => p.status === statusFilter);
-    if (stageFilter !== "all") result = result.filter(p => p.status === stageFilter);
-    if (sourceFilter !== "all") result = result; // lead_source not in DB yet
+    if (stageFilter !== "all") result = result.filter(p => p.pipeline_stage === stageFilter);
+    if (sourceFilter !== "all") result = result.filter(p => p.lead_source === sourceFilter);
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(p =>
         p.first_name.toLowerCase().includes(q) || p.last_name.toLowerCase().includes(q) ||
-        (p.email?.toLowerCase().includes(q) ?? false) || (p.phone?.includes(q) ?? false)
+        (p.email?.toLowerCase().includes(q) ?? false) || (p.phone?.includes(q) ?? false) ||
+        (p.company?.toLowerCase().includes(q) ?? false)
       );
     }
-    if (sortBy === "name") result = [...result].sort((a, b) => a.first_name.localeCompare(b.first_name));
-    else if (sortBy === "company") result = [...result].sort((a, b) => a.first_name.localeCompare(b.first_name));
-    else if (sortBy === "deal_value") result = [...result].sort((a, b) => a.first_name.localeCompare(b.first_name));
+    if (sortBy === "name") {
+      result = [...result].sort((a, b) =>
+        `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)
+      );
+    } else if (sortBy === "company") {
+      result = [...result].sort((a, b) => (a.company ?? "").localeCompare(b.company ?? ""));
+    } else if (sortBy === "deal_value") {
+      result = [...result].sort((a, b) => (b.deal_value ?? 0) - (a.deal_value ?? 0));
+    }
     return result;
-  }, [patients, statusFilter, stageFilter, sourceFilter, search, sortBy]);
+  }, [allPatients, statusFilter, stageFilter, sourceFilter, search, sortBy]);
 
   // ─── DETAIL VIEW ───
   if (viewing) {
@@ -344,9 +375,10 @@ export default function Patients() {
               </h1>
               <div className="flex items-center gap-2">
                 <StatusPill status={p.status} />
-                <div className="flex items-center gap-2">
-                <StatusPill status={p.status} />
-                </div>
+                <Badge variant="outline" className="text-xs">
+                  {PIPELINE_STAGE_LABELS[p.pipeline_stage] ?? p.pipeline_stage}
+                </Badge>
+                {p.lead_source && <LeadSourceBadge source={p.lead_source} />}
               </div>
             </div>
           </div>
@@ -391,7 +423,7 @@ export default function Patients() {
           <Card className="shadow-card">
             <CardContent className="p-4 text-center">
               <p className="text-2xl font-heading font-bold text-foreground">
-                {contactCampaigns.filter((c: any) => c.opened_at).length}
+                {contactCampaigns.filter((c) => c.opened_at).length}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">Emails Opened</p>
             </CardContent>
@@ -542,7 +574,7 @@ export default function Patients() {
                 </CardContent>
               </Card>
             ) : (
-              contactCampaigns.map((cr: any) => (
+              contactCampaigns.map((cr) => (
                 <Card key={cr.id} className="shadow-card">
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between">
@@ -608,6 +640,10 @@ export default function Patients() {
                 state: editing.state || "", zip_code: editing.zip_code || "",
                 status: editing.status, tags: (editing.tags || []).join(", "),
                 notes: editing.notes || "",
+                company: editing.company || "",
+                deal_value: editing.deal_value != null ? String(editing.deal_value) : "",
+                lead_source: editing.lead_source || "",
+                pipeline_stage: editing.pipeline_stage || "new_lead",
               } : undefined}
               onSubmit={(data) => editing ? updateMutation.mutate({ id: editing.id, form: data }) : addMutation.mutate(data)}
               onCancel={() => { setFormOpen(false); setEditing(null); }}
@@ -736,7 +772,7 @@ export default function Patients() {
                   <DropdownMenuItem key={key} onClick={() => setStageFilter(key)}>
                     {label}
                     <span className="ml-auto text-muted-foreground text-xs">
-                      {allPatients.filter(p => p.status === key).length}
+                      {allPatients.filter(p => p.pipeline_stage === key).length}
                     </span>
                   </DropdownMenuItem>
                 ))}
@@ -758,7 +794,7 @@ export default function Patients() {
                   <DropdownMenuItem key={key} onClick={() => setSourceFilter(key)}>
                     {cfg.label}
                     <span className="ml-auto text-muted-foreground text-xs">
-                      {allPatients.filter(p => p.status === key).length}
+                      {allPatients.filter(p => p.lead_source === key).length}
                     </span>
                   </DropdownMenuItem>
                 ))}
@@ -813,7 +849,8 @@ export default function Patients() {
                   </TableHead>
                   <TableHead className="font-medium">Contact</TableHead>
                   <TableHead className="font-medium">Email</TableHead>
-                  <TableHead className="font-medium">Type</TableHead>
+                  <TableHead className="font-medium">Company</TableHead>
+                  <TableHead className="font-medium">Stage</TableHead>
                   <TableHead className="font-medium">Status</TableHead>
                   <TableHead className="font-medium">Tags</TableHead>
                   <TableHead className="w-10" />
@@ -849,7 +886,19 @@ export default function Patients() {
                       <div className="text-muted-foreground">{p.email || "—"}</div>
                       {p.phone && <div className="text-[11px] text-muted-foreground/70">{p.phone}</div>}
                     </TableCell>
-                    <TableCell><StatusPill status={p.status} /></TableCell>
+                    <TableCell className="text-sm">
+                      <div className="text-muted-foreground">{p.company || "—"}</div>
+                      {p.deal_value != null && (
+                        <div className="text-[11px] text-muted-foreground/70">
+                          ${p.deal_value.toLocaleString()}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">
+                        {PIPELINE_STAGE_LABELS[p.pipeline_stage] ?? p.pipeline_stage}
+                      </Badge>
+                    </TableCell>
                     <TableCell><StatusPill status={p.status} /></TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">

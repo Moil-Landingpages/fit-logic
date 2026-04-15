@@ -113,8 +113,8 @@ const FAQManager = () => {
         setForm(prev => ({ ...prev, answer: data.answer }));
         toast.success("AI generated an answer — review and edit as needed");
       }
-    } catch (e: any) {
-      toast.error(e.message || "Failed to generate answer");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to generate answer");
     } finally {
       setAiGenerating(false);
     }

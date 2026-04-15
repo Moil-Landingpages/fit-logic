@@ -24,7 +24,7 @@ serve(async (req) => {
     const { data: existingFaqs } = await sb.from("faqs").select("question, answer, category").eq("active", true);
 
     const existingContext = (existingFaqs || [])
-      .map((f: any) => `Q: ${f.question}\nA: ${f.answer}`)
+      .map((f: Record<string, string>) => `Q: ${f.question}\nA: ${f.answer}`)
       .join("\n\n");
 
     const prompt = `You are an expert FAQ writer for FitLogic, a functional medicine and wellness practice that helps clients optimize their health through personalized programs (Hormone Optimization, Gut Health Reset, Executive Wellness).

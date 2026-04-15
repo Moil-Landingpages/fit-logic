@@ -26,10 +26,14 @@ import { CampaignRecipients, type Recipient } from "@/components/CampaignRecipie
 import { CAMPAIGN_STATUS_CONFIG, type CampaignStatus } from "@/lib/types";
 import { CampaignActivityLog } from "@/components/CampaignActivityLog";
 
+type CampaignStats = {
+  sent?: number; opened?: number; clicked?: number; bounced?: number; failed?: number; complained?: number;
+};
+
 interface CampaignRow {
   id: string; name: string; status: string; campaign_type: string;
   template_id: string | null; segment_id: string | null;
-  scheduled_at: string | null; sent_at: string | null; stats: any;
+  scheduled_at: string | null; sent_at: string | null; stats: CampaignStats | null;
   created_at: string; updated_at: string;
   auto_schedule?: boolean; max_sends_per_day?: number;
   business_hours_start?: number; business_hours_end?: number;
@@ -219,7 +223,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
   const sentRecipients = recipients.filter(r => r.status !== "pending");
   const failedRecipients = recipients.filter(r => r.status === "failed");
   const pendingRecipients = recipients.filter(r => r.status === "pending");
-  const totalDays = sequences.reduce((sum: number, s: any) => sum + (s.delay_days || 0), 0);
+  const totalDays = sequences.reduce((sum: number, s) => sum + (s.delay_days || 0), 0);
   const estimatedSendDays = maxSendsPerDay > 0 ? Math.ceil(recipients.length / maxSendsPerDay) : 0;
 
   const toggleDay = (day: string) => {
@@ -439,7 +443,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
       {/* Sequence Timeline (visual overview for sequences) */}
       {campaign.campaign_type === "sequence" && sequences.length > 1 && (
         <div className="flex items-center gap-1 px-2 py-3 rounded-lg border bg-muted/20 overflow-x-auto">
-          {sequences.map((s: any, i: number) => (
+          {sequences.map((s, i: number) => (
             <div key={s.id} className="flex items-center gap-1 shrink-0">
               <button
                 onClick={() => setExpandedSequence(expandedSequence === s.id ? null : s.id)}
@@ -480,7 +484,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
           )}
           {campaign.campaign_type === "sequence" && sequences.length > 0 && (
             <div className="space-y-3">
-              {sequences.map((s: any, i: number) => {
+              {sequences.map((s, i: number) => {
                 const isOpen = expandedSequence === s.id;
                 return (
                   <Card key={s.id} className={`transition-colors ${isOpen ? "border-primary/40" : ""}`}>
@@ -529,7 +533,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {recipients.map((r: any) => (
+                      {recipients.map((r) => (
                         <TableRow key={r.id}>
                           <TableCell className="text-xs font-medium">{r.name || "—"}</TableCell>
                           <TableCell className="text-xs text-muted-foreground">{r.email}</TableCell>

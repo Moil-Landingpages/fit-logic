@@ -207,9 +207,12 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
       }
 
       if (records.length > 0) {
+        type PatientInsert = Parameters<typeof supabase.from<"patients">>[0] extends never
+          ? never
+          : Parameters<ReturnType<typeof supabase.from<"patients">>["insert"]>[0];
         const { error } = await supabase
           .from("patients")
-          .upsert(records as any, {
+          .upsert(records as unknown as PatientInsert, {
             onConflict: "email",
             ignoreDuplicates: false,
           });

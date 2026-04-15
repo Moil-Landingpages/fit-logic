@@ -46,8 +46,9 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
+    type SegmentInput = { name: string; estimatedCount: number; description: string };
     const segmentContext = segments?.length
-      ? `Available audience segments: ${segments.map((s: any) => `"${s.name}" (${s.estimatedCount} recipients, ${s.description})`).join(", ")}`
+      ? `Available audience segments: ${(segments as SegmentInput[]).map((s) => `"${s.name}" (${s.estimatedCount} recipients, ${s.description})`).join(", ")}`
       : "";
 
     const isSequence = mode === "sequence" || (emailCount && emailCount > 1);

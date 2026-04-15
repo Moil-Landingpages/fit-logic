@@ -670,6 +670,8 @@ const Settings = () => {
     } else if (tab) {
       setActiveTab(tab);
     }
+    // queryClient is stable from useQueryClient; only run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const { data: rawSettings, isLoading } = useQuery({

@@ -170,7 +170,8 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
         .in("campaign_id", activeCampaignIds)
         .neq("status", "skipped");
       if (error) return [];
-      return (data || []).map((r: any) => ({
+      type ActiveRow = { email: string; campaign_id: string; status: string };
+      return ((data ?? []) as ActiveRow[]).map((r) => ({
         email: r.email.toLowerCase(),
         campaignName: campaignNameMap[r.campaign_id] || "Unknown campaign",
         status: r.status,

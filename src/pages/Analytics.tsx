@@ -80,50 +80,78 @@ function KpiCard({
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function Analytics() {
+  type PatientRow = {
+    id: string;
+    status: string;
+    pipeline_stage: string;
+    lead_source: string | null;
+    created_at: string;
+  };
+  type CampaignRow = {
+    id: string; name: string; status: string;
+    stats: Record<string, number> | null;
+    created_at: string; scheduled_at: string | null;
+  };
+  type SendLogRow = {
+    status: string | null;
+    opened_at: string | null;
+    clicked_at: string | null;
+    created_at: string;
+    campaign_id: string;
+  };
+  type InquiryRow = {
+    id: string; status: string | null; category: string | null;
+    created_at: string; resolved_at: string | null;
+  };
+
   // ── Patients / Pipeline ───────────────────────────────────────────────────
-  const { data: patients = [] } = useQuery({
+  const { data: patients = [] } = useQuery<PatientRow[]>({
     queryKey: QK.patients,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("patients")
-        .select("id, status, created_at");
-      return data ?? [];
+        .select("id, status, pipeline_stage, lead_source, created_at");
+      if (error) throw error;
+      return (data ?? []) as unknown as PatientRow[];
     },
   });
 
   // ── Campaigns ────────────────────────────────────────────────────────────
-  const { data: campaigns = [] } = useQuery({
+  const { data: campaigns = [] } = useQuery<CampaignRow[]>({
     queryKey: QK.campaigns,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("campaigns")
         .select("id, name, status, stats, created_at, scheduled_at")
         .order("created_at", { ascending: false });
-      return data ?? [];
+      if (error) throw error;
+      return (data ?? []) as unknown as CampaignRow[];
     },
   });
 
   // ── Send log (last 90 days) ───────────────────────────────────────────────
-  const { data: sendLog = [] } = useQuery({
+  const { data: sendLog = [] } = useQuery<SendLogRow[]>({
     queryKey: ["send_log_analytics"],
     queryFn: async () => {
       const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("campaign_send_log")
         .select("status, opened_at, clicked_at, created_at, campaign_id")
         .gte("created_at", since);
-      return data ?? [];
+      if (error) throw error;
+      return (data ?? []) as SendLogRow[];
     },
   });
 
   // ── Inquiries ─────────────────────────────────────────────────────────────
-  const { data: inquiries = [] } = useQuery({
+  const { data: inquiries = [] } = useQuery<InquiryRow[]>({
     queryKey: QK.inquiries,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("inquiries")
         .select("id, status, category, created_at, resolved_at");
-      return data ?? [];
+      if (error) throw error;
+      return (data ?? []) as InquiryRow[];
     },
   });
 
@@ -131,7 +159,7 @@ export default function Analytics() {
   const pipelineFunnel = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const p of patients) {
-      const s = (p as Record<string, unknown>).status as string ?? "active";
+      const s = p.pipeline_stage ?? "new_lead";
       counts[s] = (counts[s] ?? 0) + 1;
     }
     return Object.entries(counts).map(([status, count]) => ({
@@ -144,15 +172,15 @@ export default function Analytics() {
   // ─── Patient KPIs ──────────────────────────────────────────────────────
   const pipelineKpis = useMemo(() => {
     const total = patients.length;
-    const active = patients.filter((p) => (p as Record<string, unknown>).status === "active").length;
+    const active = patients.filter((p) => p.status === "active").length;
     return { total, active, convRate: pct(active, total) };
   }, [patients]);
 
-  // ─── Status distribution (placeholder for lead sources) ─────────────────
+  // ─── Lead source distribution ─────────────────────────────────────────
   const leadSources = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const p of patients) {
-      const s = (p as Record<string, unknown>).status as string ?? "unknown";
+      const s = p.lead_source ?? "unknown";
       counts[s] = (counts[s] ?? 0) + 1;
     }
     return Object.entries(counts)
@@ -164,10 +192,10 @@ export default function Analytics() {
   // ─── Campaign Email Stats ────────────────────────────────────────────────
   const emailKpis = useMemo(() => {
     const total      = sendLog.length;
-    const sent       = sendLog.filter((r: any) => r.status !== "failed" && r.status !== "skipped").length;
-    const opened     = sendLog.filter((r: any) => r.opened_at).length;
-    const clicked    = sendLog.filter((r: any) => r.clicked_at).length;
-    const bounced    = sendLog.filter((r: any) => r.status === "bounced").length;
+    const sent       = sendLog.filter((r) => r.status !== "failed" && r.status !== "skipped").length;
+    const opened     = sendLog.filter((r) => r.opened_at).length;
+    const clicked    = sendLog.filter((r) => r.clicked_at).length;
+    const bounced    = sendLog.filter((r) => r.status === "bounced").length;
     const complained = 0;
     return {
       total,
@@ -187,7 +215,7 @@ export default function Analytics() {
     return campaigns
       .filter((c) => c.stats)
       .map((c) => {
-        const s = c.stats as Record<string, number> ?? {};
+        const s = c.stats ?? {};
         return {
           name:      c.name,
           status:    c.status,
@@ -205,8 +233,8 @@ export default function Analytics() {
     const buckets: Record<string, number> = {};
     const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
     for (const row of sendLog) {
-      if (new Date((row as any).created_at).getTime() < cutoff) continue;
-      const day = (row as any).created_at.slice(0, 10);
+      if (new Date(row.created_at).getTime() < cutoff) continue;
+      const day = row.created_at.slice(0, 10);
       buckets[day] = (buckets[day] ?? 0) + 1;
     }
     const sorted = Object.entries(buckets).sort(([a], [b]) => a.localeCompare(b));

@@ -32,11 +32,14 @@ type ContactRow = {
   last_name: string;
   email: string | null;
   status: string;
+  pipeline_stage: string;
+  deal_value: number | null;
+  company: string | null;
   created_at: string;
 };
 
 function fmt$(v: number | null) {
-  if (v == null) return null;
+  if (v == null) return "";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(v);
 }
 
@@ -86,7 +89,16 @@ function PipelineCard({
         <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
       <div className="flex items-center justify-between mt-2.5">
-        <Badge variant="outline" className="text-[10px]">{contact.status}</Badge>
+        <div className="flex items-center gap-1.5 min-w-0">
+          {contact.company && (
+            <span className="text-[10px] text-muted-foreground truncate">{contact.company}</span>
+          )}
+          {contact.deal_value != null && (
+            <Badge variant="outline" className="text-[10px]">
+              ${contact.deal_value.toLocaleString()}
+            </Badge>
+          )}
+        </div>
         <span className="text-[10px] text-muted-foreground">{relDate(contact.created_at)}</span>
       </div>
     </div>
@@ -108,7 +120,7 @@ function KanbanColumn({
   onNavigate: (id: string) => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
-  const totalValue = contacts.length;
+  const totalValue = contacts.reduce((sum, c) => sum + (c.deal_value ?? 0), 0);
 
   return (
     <div
@@ -130,7 +142,7 @@ function KanbanColumn({
             </span>
           </div>
           {totalValue > 0 && (
-            <span className="text-[10px] text-muted-foreground font-medium">{totalValue} contacts</span>
+            <span className="text-[10px] text-muted-foreground font-medium">{fmt$(totalValue)}</span>
           )}
         </div>
       </div>
@@ -167,42 +179,57 @@ const Index = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("patients")
-        .select("id, first_name, last_name, email, status, created_at")
+        .select("id, first_name, last_name, email, status, pipeline_stage, deal_value, company, created_at")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as ContactRow[];
     },
   });
 
+  type CampaignRow = {
+    id: string;
+    name: string;
+    status: string;
+    sent_count: number | null;
+    recipient_count: number | null;
+    stats: Record<string, number> | null;
+    created_at: string;
+  };
+  type ReferralRow = { id: string; status: string };
+  type SubmissionRow = { id: string; review_status: string | null; created_at: string };
+
   const { data: campaigns = [] } = useQuery({
     queryKey: QK.campaigns,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("campaigns")
         .select("id, name, status, sent_count, recipient_count, stats, created_at")
         .order("created_at", { ascending: false });
-      return data ?? [];
+      if (error) throw error;
+      return (data ?? []) as unknown as CampaignRow[];
     },
   });
 
   const { data: referrals = [] } = useQuery({
     queryKey: QK.referrals,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("referrals").select("id, status").order("created_at", { ascending: false });
-      return data ?? [];
+      if (error) throw error;
+      return (data ?? []) as ReferralRow[];
     },
   });
 
   const { data: submissions = [] } = useQuery({
     queryKey: QK.intakeSubmissions,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("intake_submissions")
         .select("id, review_status, created_at")
         .order("created_at", { ascending: false })
         .limit(50);
-      return data ?? [];
+      if (error) throw error;
+      return (data ?? []) as SubmissionRow[];
     },
   });
 
@@ -210,7 +237,7 @@ const Index = () => {
   const stageMutation = useMutation({
     mutationFn: async ({ id, stage }: { id: string; stage: string }) => {
       const { error } = await supabase
-        .from("patients").update({ status: stage }).eq("id", id);
+        .from("patients").update({ pipeline_stage: stage }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: QK.patients }),
@@ -220,22 +247,22 @@ const Index = () => {
   const handleDrop = (targetStage: string) => {
     if (!draggingId || !targetStage) return;
     const contact = contacts.find((c) => c.id === draggingId);
-    if (!contact || contact.status === targetStage) { setDraggingId(null); return; }
+    if (!contact || contact.pipeline_stage === targetStage) { setDraggingId(null); return; }
     stageMutation.mutate({ id: draggingId, stage: targetStage });
     setDraggingId(null);
   };
 
-  // Group contacts by stage
+  // Group contacts by pipeline stage
   const byStage = Object.fromEntries(
-    PIPELINE_STAGES.map((s) => [s.key, contacts.filter((c) => c.status === s.key)])
+    PIPELINE_STAGES.map((s) => [s.key, contacts.filter((c) => c.pipeline_stage === s.key)])
   ) as Record<PipelineStage, ContactRow[]>;
 
   // KPIs
   const activeContacts   = contacts.filter((c) => c.status === "active").length;
   const activeCampaigns  = campaigns.filter((c) => c.status === "active" || c.status === "scheduled").length;
-  const totalSent        = campaigns.reduce((s, c) => s + ((c as any).sent_count || 0), 0);
-  const pendingLeads     = (submissions as any[]).filter((s) => s.review_status === "pending").length;
-  const convertedReferrals = referrals.filter((r: any) => r.status === "converted").length;
+  const totalSent        = campaigns.reduce((s, c) => s + (c.sent_count ?? 0), 0);
+  const pendingLeads     = submissions.filter((s) => s.review_status === "pending").length;
+  const convertedReferrals = referrals.filter((r) => r.status === "converted").length;
   const pipelineContacts = contacts.length;
   const wonCount         = byStage.won?.length ?? 0;
   const lostCount        = byStage.lost?.length ?? 0;
@@ -407,8 +434,8 @@ const Index = () => {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {recentCampaigns.map((c: any) => {
-                      const stats = (c.stats as Record<string, number> | null) ?? {};
+                    {recentCampaigns.map((c) => {
+                      const stats = c.stats ?? {};
                       const openRate = stats.opened && c.sent_count
                         ? Math.round((stats.opened / c.sent_count) * 100) : 0;
                       return (

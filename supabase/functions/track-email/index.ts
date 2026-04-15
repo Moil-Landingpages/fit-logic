@@ -93,7 +93,7 @@ serve(async (req) => {
 
       const { data: log } = await supabase
         .from("campaign_send_log")
-        .select("recipient_id, clicked_url")
+        .select("recipient_id")
         .eq("tracking_id", trackingId)
         .single();
 
@@ -105,16 +105,12 @@ serve(async (req) => {
           .is("clicked_at", null);
       }
 
-      // Prefer the URL stored in the DB over the query-param URL.
-      // Only fall back to the query param if it passes the safety check.
-      const destination: string | null =
-        (log?.clicked_url && isSafeUrl(log.clicked_url) ? log.clicked_url : null) ??
-        (rawRedirect && isSafeUrl(rawRedirect) ? rawRedirect : null);
-
-      if (destination) {
+      // Redirect to the safe URL from the tracked query param.
+      // Only accept absolute http(s) URLs to prevent open-redirect / XSS abuse.
+      if (rawRedirect && isSafeUrl(rawRedirect)) {
         return new Response(null, {
           status: 302,
-          headers: { Location: destination },
+          headers: { Location: rawRedirect },
         });
       }
 

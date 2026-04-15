@@ -4,20 +4,21 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Send, Eye, MousePointerClick, AlertCircle, Clock } from "lucide-react";
-
-const STATUS_ICONS: Record<string, any> = {
-  queued: Clock,
-  sent: Send,
-  opened: Eye,
-  clicked: MousePointerClick,
-  failed: AlertCircle,
-};
-
 const STATUS_COLORS: Record<string, string> = {
   queued: "bg-muted text-muted-foreground",
   sent: "bg-primary/10 text-primary",
   failed: "bg-destructive/10 text-destructive",
+};
+
+type SendLogRow = {
+  id: string;
+  step_number: number;
+  status: string;
+  sent_at: string | null;
+  opened_at: string | null;
+  clicked_at: string | null;
+  error_message: string | null;
+  campaign_recipients: { name: string | null; email: string } | null;
 };
 
 export function CampaignActivityLog({ campaignId }: { campaignId: string }) {
@@ -67,7 +68,7 @@ export function CampaignActivityLog({ campaignId }: { campaignId: string }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {logs.map((log: any) => (
+              {(logs as SendLogRow[]).map((log) => (
                 <TableRow key={log.id}>
                   <TableCell className="text-xs">
                     <div>

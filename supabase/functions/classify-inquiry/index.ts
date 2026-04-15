@@ -66,6 +66,20 @@ async function sendEmail(
   }
 }
 
+// Escape user-supplied text before dropping into an HTML email template.
+// Prevents XSS/content injection via inquiry content, names, etc.
+function esc(s: unknown): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+function escMultiline(s: unknown): string {
+  return esc(s).replace(/\n/g, "<br>");
+}
+
 // ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
@@ -147,7 +161,7 @@ Respond in JSON format:
   "reasoning": "brief explanation"
 }`;
 
-    const aiResponse = await fetch("https://ai.lovable.dev/api/chat/completions", {
+    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -194,8 +208,8 @@ Respond in JSON format:
 
       if (emailApiKey && fromAddress) {
         try {
-          const html = `<p>Hi ${inquiry.patient_name ?? "there"},</p>
-<p>${(result.auto_response as string).replace(/\n/g, "<br>")}</p>
+          const html = `<p>Hi ${esc(inquiry.patient_name ?? "there")},</p>
+<p>${escMultiline(result.auto_response)}</p>
 <p style="margin-top:24px;font-size:12px;color:#888;">
   This is an automated response from FitLogic.
   If you have additional questions, please reply to this email.
@@ -233,17 +247,17 @@ Respond in JSON format:
 
         if (staffMember?.email) {
           try {
-            const html = `<p>Hi ${staffMember.first_name ?? "there"},</p>
+            const html = `<p>Hi ${esc(staffMember.first_name ?? "there")},</p>
 <p>A new inquiry requires your attention:</p>
 <ul>
-  <li><strong>From:</strong> ${inquiry.patient_name} (${inquiry.patient_email ?? "no email"})</li>
-  <li><strong>Source:</strong> ${inquiry.source}</li>
-  <li><strong>Category:</strong> ${result.category}</li>
-  <li><strong>Reason:</strong> ${result.reasoning ?? "Flagged for escalation"}</li>
+  <li><strong>From:</strong> ${esc(inquiry.patient_name)} (${esc(inquiry.patient_email ?? "no email")})</li>
+  <li><strong>Source:</strong> ${esc(inquiry.source)}</li>
+  <li><strong>Category:</strong> ${esc(result.category)}</li>
+  <li><strong>Reason:</strong> ${esc(result.reasoning ?? "Flagged for escalation")}</li>
 </ul>
 <p><strong>Message:</strong></p>
 <blockquote style="border-left:3px solid #ccc;padding-left:12px;color:#444;">
-  ${String(inquiry.raw_content).replace(/\n/g, "<br>")}
+  ${escMultiline(inquiry.raw_content)}
 </blockquote>
 <p>Please log in to FitLogic to respond.</p>`;
             await sendEmail(
@@ -251,7 +265,7 @@ Respond in JSON format:
               emailApiKey,
               fromHeader,
               staffMember.email,
-              `[FitLogic] Escalated inquiry from ${inquiry.patient_name}`,
+              `[FitLogic] Escalated inquiry from ${String(inquiry.patient_name ?? "unknown")}`,
               html
             );
           } catch (err) {

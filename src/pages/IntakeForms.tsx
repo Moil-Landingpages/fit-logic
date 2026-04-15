@@ -49,7 +49,7 @@ interface SubmissionRow {
   patient_id: string | null;
   patient_name: string;
   patient_email: string | null;
-  submission_data: Record<string, any>;
+  submission_data: Record<string, unknown>;
   completion_status: string;
   review_status: string;
   staff_notes: string | null;
@@ -194,7 +194,7 @@ function FormPreview({ form, open, onClose }: { form: FormRow; open: boolean; on
 }
 
 // Submissions Panel
-function SubmissionsPanel({ submissions, forms, onUpdateSubmission }: { submissions: SubmissionRow[]; forms: FormRow[]; onUpdateSubmission: (id: string, updates: Record<string, any>) => void }) {
+function SubmissionsPanel({ submissions, forms, onUpdateSubmission }: { submissions: SubmissionRow[]; forms: FormRow[]; onUpdateSubmission: (id: string, updates: Record<string, unknown>) => void }) {
   const [search, setSearch] = useState("");
   const [filterReview, setFilterReview] = useState<string>("all");
   const [selectedSub, setSelectedSub] = useState<SubmissionRow | null>(null);
@@ -330,7 +330,7 @@ const IntakeForms = () => {
       const { error } = await supabase.from("intake_forms").update({
         name: updates.name,
         description: updates.description,
-        questions: updates.questions as any,
+        questions: updates.questions as TablesUpdate<"intake_forms">["questions"],
         active: updates.active,
       }).eq("id", id);
       if (error) throw error;
@@ -371,11 +371,11 @@ const IntakeForms = () => {
     updateFormMut.mutate({ id, updates });
   };
 
-  const handleSubmissionUpdate = (id: string, updates: Record<string, any>) => {
+  const handleSubmissionUpdate = (id: string, updates: Record<string, unknown>) => {
     queryClient.setQueryData(["intake_submissions"], (old: SubmissionRow[] | undefined) =>
       old?.map((s) => (s.id === id ? { ...s, ...updates } : s)) || []
     );
-    updateSubmissionMut.mutate({ id, updates });
+    updateSubmissionMut.mutate({ id, updates: updates as TablesUpdate<"intake_submissions"> });
   };
 
   const pendingCount = submissions.filter((s) => s.review_status === "pending").length;

@@ -34,10 +34,14 @@ import {
   type CampaignStatus,
 } from "@/lib/types";
 
+type CampaignStats = {
+  sent?: number; opened?: number; clicked?: number; bounced?: number; failed?: number; complained?: number;
+};
+
 interface CampaignRow {
   id: string; name: string; status: string; campaign_type: string;
   template_id: string | null; segment_id: string | null;
-  scheduled_at: string | null; sent_at: string | null; stats: any;
+  scheduled_at: string | null; sent_at: string | null; stats: CampaignStats | null;
   created_at: string; updated_at: string;
   auto_schedule?: boolean; max_sends_per_day?: number;
   business_hours_start?: number; business_hours_end?: number;
@@ -53,10 +57,40 @@ interface TemplateRow {
   body_html: string | null; category: string; created_at: string; updated_at: string;
 }
 
+type SegmentRule = Record<string, unknown>;
+
 interface SegmentRow {
-  id: string; name: string; description: string | null; rules: any;
+  id: string; name: string; description: string | null; rules: SegmentRule[] | null;
   estimated_count: number; color: string | null;
 }
+
+// Shape returned by the AI campaign/sequence wizards
+type AIEmail = {
+  step: number; subject: string; previewText?: string; bodyHtml: string; delayDays: number;
+};
+type AIWizardResult = {
+  campaignName: string;
+  category: string;
+  suggestedSegment: string;
+  emails: AIEmail[];
+};
+type AIResult = {
+  campaignName: string;
+  subject: string;
+  previewText: string;
+  bodyHtml: string;
+  category: string;
+  suggestedSegment: string;
+};
+
+// Shape returned from campaign_recipients/campaign_sequences queries
+type RecipientRow = {
+  id?: string; email: string; name: string | null; patient_id: string | null; source: string;
+};
+type SequenceRow = {
+  id: string; step_number: number; delay_days: number;
+  subject_override: string | null; body_html_override: string | null;
+};
 
 const Campaigns_Page = () => {
   const { toast } = useToast();
@@ -121,7 +155,7 @@ const Campaigns_Page = () => {
   const saveCampaignMut = useMutation({
     mutationFn: async (c: Partial<CampaignRow>) => {
       const campaignType = c.campaign_type || "single";
-      const campaignData: any = {
+      const campaignData: Record<string, unknown> = {
         name: c.name,
         template_id: campaignType === "single" ? c.template_id : null,
         segment_id: c.segment_id || null,
@@ -251,12 +285,30 @@ const Campaigns_Page = () => {
       business_days: c.business_days || ["Mon", "Tue", "Wed", "Thu", "Fri"],
     });
     // Load existing recipients
-    const { data: recs } = await supabase.from("campaign_recipients").select("*").eq("campaign_id", c.id);
-    if (recs) setRecipients(recs.map((r: any) => ({ email: r.email, name: r.name || "", patient_id: r.patient_id, source: r.source })));
+    const { data: recs, error: recErr } = await supabase
+      .from("campaign_recipients").select("*").eq("campaign_id", c.id);
+    if (recErr) {
+      toast({ title: "Could not load recipients", description: recErr.message, variant: "destructive" });
+    } else if (recs) {
+      setRecipients((recs as RecipientRow[]).map((r) => ({
+        email: r.email, name: r.name || "", patient_id: r.patient_id, source: r.source,
+      })));
+    }
     // Load existing sequences
     if (c.campaign_type === "sequence") {
-      const { data: seqs } = await supabase.from("campaign_sequences").select("*").eq("campaign_id", c.id).order("step_number");
-      if (seqs) setSequenceSteps(seqs.map((s: any) => ({ id: s.id, step_number: s.step_number, subject: s.subject_override || "", body_html: s.body_html_override || "", delay_days: s.delay_days })));
+      const { data: seqs, error: seqErr } = await supabase
+        .from("campaign_sequences").select("*").eq("campaign_id", c.id).order("step_number");
+      if (seqErr) {
+        toast({ title: "Could not load sequence", description: seqErr.message, variant: "destructive" });
+      } else if (seqs) {
+        setSequenceSteps((seqs as SequenceRow[]).map((s) => ({
+          id: s.id,
+          step_number: s.step_number,
+          subject: s.subject_override || "",
+          body_html: s.body_html_override || "",
+          delay_days: s.delay_days,
+        })));
+      }
     }
     setShowBuilder(true);
     setSelectedCampaign(null);
@@ -266,9 +318,9 @@ const Campaigns_Page = () => {
   const getSegment = (id: string | null) => segments.find(s => s.id === id);
   const filteredCampaigns = campaigns.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
   const filteredTemplates = templates.filter(t => t.name.toLowerCase().includes(search.toLowerCase()) || t.subject.toLowerCase().includes(search.toLowerCase()));
-  const totalSent = campaigns.reduce((sum, c) => sum + ((c.stats as any)?.sent || 0), 0);
-  const totalOpened = campaigns.reduce((sum, c) => sum + ((c.stats as any)?.opened || 0), 0);
-  const totalClicked = campaigns.reduce((sum, c) => sum + ((c.stats as any)?.clicked || 0), 0);
+  const totalSent = campaigns.reduce((sum, c) => sum + (c.stats?.sent ?? 0), 0);
+  const totalOpened = campaigns.reduce((sum, c) => sum + (c.stats?.opened ?? 0), 0);
+  const totalClicked = campaigns.reduce((sum, c) => sum + (c.stats?.clicked ?? 0), 0);
   const avgOpenRate = totalSent > 0 ? Math.round((totalOpened / totalSent) * 100) : 0;
   const avgClickRate = totalSent > 0 ? Math.round((totalClicked / totalSent) * 100) : 0;
 
@@ -313,20 +365,27 @@ const Campaigns_Page = () => {
     toast({ title: "Campaign duplicated" });
   };
 
-  const handleAIAccept = async (result: any) => {
-    const { data: tpl } = await supabase.from("email_templates").insert({
+  const handleAIAccept = async (result: AIResult) => {
+    const { data: tpl, error: tplErr } = await supabase.from("email_templates").insert({
       name: result.campaignName, subject: result.subject, preview_text: result.previewText, body_html: result.bodyHtml, category: result.category,
     }).select().single();
-    if (!tpl) return;
+    if (tplErr || !tpl) {
+      toast({ title: "AI create failed", description: tplErr?.message ?? "template insert failed", variant: "destructive" });
+      return;
+    }
     const matchSeg = segments.find(s => s.name.toLowerCase().includes(result.suggestedSegment.toLowerCase()));
-    await supabase.from("campaigns").insert({
+    const { error: campErr } = await supabase.from("campaigns").insert({
       name: result.campaignName, status: "draft", template_id: tpl.id, segment_id: matchSeg?.id || null,
     });
+    if (campErr) {
+      toast({ title: "AI create failed", description: campErr.message, variant: "destructive" });
+      return;
+    }
     invalidateAll();
     toast({ title: "AI campaign created!" });
   };
 
-  const handleAIWizardAccept = async (result: any) => {
+  const handleAIWizardAccept = async (result: AIWizardResult) => {
     const isSequence = result.emails?.length > 1;
     const matchSeg = segments.find(s => s.name.toLowerCase().includes(result.suggestedSegment.toLowerCase()));
 
@@ -336,24 +395,38 @@ const Campaigns_Page = () => {
         name: result.campaignName, status: "draft", campaign_type: "sequence",
         segment_id: matchSeg?.id || segments[0]?.id || null,
       }).select().single();
-      if (error || !newCampaign) return;
+      if (error || !newCampaign) {
+        toast({ title: "AI create failed", description: error?.message ?? "campaign insert failed", variant: "destructive" });
+        return;
+      }
       // Insert sequence steps
-      await supabase.from("campaign_sequences").insert(
-        result.emails.map((e: any) => ({
+      const { error: seqErr } = await supabase.from("campaign_sequences").insert(
+        result.emails.map((e) => ({
           campaign_id: newCampaign.id, step_number: e.step,
           delay_days: e.delayDays, subject_override: e.subject, body_html_override: e.bodyHtml,
         }))
       );
+      if (seqErr) {
+        toast({ title: "AI create failed", description: seqErr.message, variant: "destructive" });
+        return;
+      }
     } else {
       // Single email — create template + campaign
       const email = result.emails[0];
-      const { data: tpl } = await supabase.from("email_templates").insert({
+      const { data: tpl, error: tplErr } = await supabase.from("email_templates").insert({
         name: result.campaignName, subject: email.subject, preview_text: email.previewText, body_html: email.bodyHtml, category: result.category,
       }).select().single();
-      if (!tpl) return;
-      await supabase.from("campaigns").insert({
+      if (tplErr || !tpl) {
+        toast({ title: "AI create failed", description: tplErr?.message ?? "template insert failed", variant: "destructive" });
+        return;
+      }
+      const { error: campErr } = await supabase.from("campaigns").insert({
         name: result.campaignName, status: "draft", template_id: tpl.id, segment_id: matchSeg?.id || null,
       });
+      if (campErr) {
+        toast({ title: "AI create failed", description: campErr.message, variant: "destructive" });
+        return;
+      }
     }
     invalidateAll();
     toast({ title: "AI campaign created!" });
@@ -475,7 +548,7 @@ const Campaigns_Page = () => {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    {(campaign.stats as any)?.sent && <div className="text-right shrink-0"><p className="text-sm font-bold font-heading">{(campaign.stats as any).sent}</p><p className="text-[10px] text-muted-foreground">sent</p></div>}
+                    {(campaign.stats?.sent ?? 0) > 0 && <div className="text-right shrink-0"><p className="text-sm font-bold font-heading">{campaign.stats?.sent}</p><p className="text-[10px] text-muted-foreground">sent</p></div>}
                     <div className="flex gap-1" onClick={e => e.stopPropagation()}>
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditCampaign(campaign)}><Pencil className="h-3 w-3" /></Button>
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDuplicate(campaign)}><Copy className="h-3 w-3" /></Button>

@@ -8,7 +8,8 @@ import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 import type { InquiryCategory, InquiryStatus, InquirySource } from "@/lib/types";
 
-const sourceIcons: Record<string, any> = { email: Mail, portal: Globe, phone: Phone, manual: PenLine };
+import type { LucideIcon } from "lucide-react";
+const sourceIcons: Record<string, LucideIcon> = { email: Mail, portal: Globe, phone: Phone, manual: PenLine };
 
 export interface InquiryRow {
   id: string;

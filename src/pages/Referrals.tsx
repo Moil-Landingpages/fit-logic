@@ -96,7 +96,8 @@ const Referrals = () => {
   });
 
   const copyLink = (code: string) => {
-    navigator.clipboard.writeText(`https://moilapp.com/ref/${code}`);
+    const base = typeof window !== "undefined" ? window.location.origin : "";
+    navigator.clipboard.writeText(`${base}/ref/${code}`);
     toast({ title: "Referral link copied!" });
   };
 
