@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { isAllowedDomain, allowedDomainsLabel } from "@/lib/auth-config";
 import fitlogicLogo from "@/assets/fitlogic-logo.png";
 
 export default function Login() {
@@ -40,6 +41,14 @@ export default function Login() {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isAllowedDomain(email)) {
+      toast({
+        title: "Domain not allowed",
+        description: `Sign-up is restricted to ${allowedDomainsLabel()} accounts.`,
+        variant: "destructive",
+      });
+      return;
+    }
     setSubmitting(true);
     const { error } = await supabase.auth.signUp({ email, password });
     setSubmitting(false);

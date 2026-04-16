@@ -2,6 +2,7 @@ import { LogOut } from "lucide-react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
+import { NotificationBell } from "@/components/NotificationBell";
 import { useAuth } from "@/contexts/AuthContext";
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -19,6 +20,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <span className="text-sm text-muted-foreground">System Online</span>
             </div>
             <div className="ml-auto flex items-center gap-3">
+              <NotificationBell />
               {user && (
                 <span className="text-xs text-muted-foreground hidden sm:block truncate max-w-[160px]">
                   {user.email}

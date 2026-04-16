@@ -9,6 +9,7 @@ export const QK = {
   campaignRecipients: (id: string) => ["campaign_recipients", id] as const,
   campaignSequences:  (id: string) => ["campaign_sequences",  id] as const,
   emailTemplates:     ["email_templates"]     as const,
+  emailMessages:      ["email_messages"]      as const,
   segments:           ["segments"]            as const,
   inquiries:          ["inquiries"]           as const,
   referrals:          ["referrals"]           as const,
@@ -18,4 +19,5 @@ export const QK = {
   staff:              ["staff"]              as const,
   settings:           ["settings"]           as const,
   suppressions:       ["email_suppressions"] as const,
+  notifications:      ["notifications"]      as const,
 } as const;

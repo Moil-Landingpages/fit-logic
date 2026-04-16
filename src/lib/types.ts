@@ -94,3 +94,16 @@ export const TEMPLATE_CATEGORY_CONFIG: Record<string, { label: string; color: st
   educational: { label: "Educational", color: "text-primary" },
   reactivation: { label: "Reactivation", color: "text-category-prescription" },
 };
+
+// Email messages & lead classification
+export type EmailProvider = "gmail" | "outlook";
+export type LeadCategory = "new_client" | "returning_client" | "referral" | "vendor" | "not_a_lead";
+export type NotificationType = "new_lead" | "sync_complete" | "info";
+
+export const LEAD_CATEGORY_CONFIG: Record<LeadCategory, { label: string; color: string; bgColor: string }> = {
+  new_client:       { label: "New Client",       color: "text-category-health",        bgColor: "bg-category-health/10" },
+  returning_client: { label: "Returning",         color: "text-category-scheduling",    bgColor: "bg-category-scheduling/10" },
+  referral:         { label: "Referral",           color: "text-category-prescription",  bgColor: "bg-category-prescription/10" },
+  vendor:           { label: "Vendor",             color: "text-category-billing",       bgColor: "bg-category-billing/10" },
+  not_a_lead:       { label: "Not a Lead",         color: "text-muted-foreground",       bgColor: "bg-muted" },
+};

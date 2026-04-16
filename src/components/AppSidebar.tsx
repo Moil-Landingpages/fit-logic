@@ -2,6 +2,9 @@ import { LayoutDashboard, Mail, Users, ClipboardList, FileText, Share2, Settings
 import { NavLink } from "@/components/NavLink";
 import { Link } from "react-router-dom";
 import { useLocation } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { QK } from "@/lib/queryKeys";
 import logo from "@/assets/fitlogic-logo.png";
 
 import {
@@ -13,6 +16,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuBadge,
   SidebarHeader,
   SidebarFooter,
   useSidebar,
@@ -38,6 +42,21 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const location = useLocation();
   const currentPath = location.pathname;
+
+  // Live unread count for inbox badge
+  const { data: unreadLeads = 0 } = useQuery({
+    queryKey: [...QK.emailMessages, "unread_leads_count"],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("email_messages")
+        .select("*", { count: "exact", head: true })
+        .eq("is_lead", true)
+        .eq("is_read", false);
+      if (error) return 0;
+      return count ?? 0;
+    },
+    refetchInterval: 30_000,
+  });
 
   const isActive = (path: string) => currentPath === path;
 
@@ -68,6 +87,11 @@ export function AppSidebar() {
                       {!collapsed && <span>{item.title}</span>}
                     </NavLink>
                   </SidebarMenuButton>
+                  {item.url === "/inbox" && unreadLeads > 0 && (
+                    <SidebarMenuBadge className="bg-category-health/20 text-category-health text-[10px] font-bold">
+                      {unreadLeads > 9 ? "9+" : unreadLeads}
+                    </SidebarMenuBadge>
+                  )}
                 </SidebarMenuItem>
               ))}
               <SidebarMenuItem>

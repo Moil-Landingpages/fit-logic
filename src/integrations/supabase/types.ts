@@ -346,6 +346,75 @@ export type Database = {
         }
         Relationships: []
       }
+      email_messages: {
+        Row: {
+          id: string
+          provider: string
+          external_id: string
+          thread_id: string | null
+          from_email: string
+          from_name: string | null
+          to_email: string | null
+          subject: string | null
+          snippet: string | null
+          body_text: string | null
+          body_html: string | null
+          received_at: string
+          is_read: boolean
+          labels: string[]
+          is_lead: boolean
+          lead_score: number | null
+          lead_category: string | null
+          lead_summary: string | null
+          synced_at: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          provider?: string
+          external_id: string
+          thread_id?: string | null
+          from_email: string
+          from_name?: string | null
+          to_email?: string | null
+          subject?: string | null
+          snippet?: string | null
+          body_text?: string | null
+          body_html?: string | null
+          received_at?: string
+          is_read?: boolean
+          labels?: string[]
+          is_lead?: boolean
+          lead_score?: number | null
+          lead_category?: string | null
+          lead_summary?: string | null
+          synced_at?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          provider?: string
+          external_id?: string
+          thread_id?: string | null
+          from_email?: string
+          from_name?: string | null
+          to_email?: string | null
+          subject?: string | null
+          snippet?: string | null
+          body_text?: string | null
+          body_html?: string | null
+          received_at?: string
+          is_read?: boolean
+          labels?: string[]
+          is_lead?: boolean
+          lead_score?: number | null
+          lead_category?: string | null
+          lead_summary?: string | null
+          synced_at?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
       email_templates: {
         Row: {
           body_html: string | null
@@ -598,6 +667,36 @@ export type Database = {
           section_title?: string
           tags?: string[] | null
           token_estimate?: number | null
+        }
+        Relationships: []
+      }
+      notifications: {
+        Row: {
+          id: string
+          type: string
+          title: string
+          message: string | null
+          link: string | null
+          is_read: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          type?: string
+          title: string
+          message?: string | null
+          link?: string | null
+          is_read?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          type?: string
+          title?: string
+          message?: string | null
+          link?: string | null
+          is_read?: boolean
+          created_at?: string
         }
         Relationships: []
       }
