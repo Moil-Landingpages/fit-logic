@@ -14,6 +14,10 @@ npm run test:watch   # Watch mode tests
 npm run preview      # Preview production build locally
 ```
 
+Run a single test file: `npx vitest run src/path/to/file.test.ts`
+
+E2E tests use Playwright (`playwright.config.ts`): `npx playwright test`
+
 ## Architecture Overview
 
 **FitLogic Sales Engine** is a React 18 + TypeScript SPA (Vite) for healthcare CRM and marketing automation — contacts, pipeline kanban, email campaigns, inquiry management, intake forms, analytics, and referral tracking.
@@ -27,6 +31,21 @@ npm run preview      # Preview production build locally
 - **Forms:** react-hook-form + Zod validation
 - **Routing:** React Router v6 — `/login` is public, all other routes protected via `ProtectedRoute`
 - **Charts:** Recharts
+
+### Routes
+
+| Path | Page | Notes |
+|---|---|---|
+| `/login` | `Login.tsx` | Public |
+| `/` | `Index.tsx` | Pipeline kanban |
+| `/contacts` | `Patients.tsx` | Contact CRM (alias: `/patients`) |
+| `/campaigns` | `Campaigns.tsx` | Email campaigns |
+| `/inbox` | `Inbox.tsx` | Email inbox |
+| `/analytics` | `Analytics.tsx` | Dashboard |
+| `/faqs` | `FAQManager.tsx` | FAQ library |
+| `/forms` | `IntakeForms.tsx` | Form builder (alias: `/intake`) |
+| `/referrals` | `Referrals.tsx` | Referral tracking |
+| `/settings` | `Settings.tsx` | Practice config |
 
 ### Path Alias
 
@@ -46,6 +65,14 @@ npm run preview      # Preview production build locally
 - All tables have RLS enforced with `auth.role() = 'authenticated'` (migration `20260407000001`)
 - Exception: `intake_submissions` allows public INSERT for embedded forms
 - Edge Functions (Deno): `supabase/functions/` — all use `SUPABASE_SERVICE_ROLE_KEY` which bypasses RLS
+
+### Shared Types
+
+`src/lib/types.ts` defines domain enums and config maps used across the app:
+- Types: `InquiryCategory`, `InquiryStatus`, `CampaignStatus`, `QuestionType`, `SubmissionStatus`
+- Config maps: `CATEGORY_CONFIG`, `STATUS_CONFIG`, `CAMPAIGN_STATUS_CONFIG` — each maps a type to `{ label, color, bgColor }` Tailwind class strings, used by badge components
+
+Toasts: import `toast` from `sonner` directly (not `useToast`).
 
 ### Query Key Convention
 
@@ -107,6 +134,7 @@ Email provider API key is stored in `practice_settings.email_provider_api_key` w
 ### Heaviest Files
 
 - `src/pages/Patients.tsx` (~912 lines) — contact list, filters (stage/source/status/search), sort, profile detail, bulk import trigger, paginated loading (500/page)
+- `src/components/PatientForm.tsx` (~892 lines) — contact create/edit form (react-hook-form + Zod)
 - `src/pages/Settings.tsx` (~760 lines) — practice config, staff CRUD, Google OAuth connect, email provider setup
 - `src/pages/Campaigns.tsx` (~700 lines) — campaign CRUD, AI wizard, scheduling, duplicate, segment assignment
 - `src/components/CampaignDetail.tsx` (~535 lines) — per-campaign detail with recipients, sequences, activity log
