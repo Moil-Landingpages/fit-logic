@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { GoogleGenerativeAI, SchemaType, FunctionCallingMode, type FunctionDeclaration } from "@google/generative-ai";
 
 const TEXT_STYLE_FORMAT = `
 EMAIL BODY FORMAT — NEAR-PLAIN-TEXT HTML (critical for deliverability):
@@ -75,108 +76,73 @@ ${PROMO_HTML_FORMAT}
 - If category is "followup", "educational", or "reactivation" (personal outreach):
 ${TEXT_STYLE_FORMAT}`;
 
-    const tools = isSequence
-      ? [{
-          type: "function",
-          function: {
-            name: "generate_sequence",
-            description: "Generate a complete multi-email campaign sequence",
-            parameters: {
-              type: "object",
-              properties: {
-                campaignName: { type: "string" },
-                category: { type: "string", enum: ["welcome", "followup", "promotional", "educational", "reactivation"] },
-                suggestedSegment: { type: "string" },
-                sendTimeRecommendation: { type: "string" },
-                rationale: { type: "string" },
-                emails: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      step: { type: "number" },
-                      subject: { type: "string" },
-                      previewText: { type: "string" },
-                      bodyHtml: { type: "string" },
-                      delayDays: { type: "number" },
-                      tip: { type: "string" },
-                    },
-                    required: ["step", "subject", "previewText", "bodyHtml", "delayDays", "tip"],
-                    additionalProperties: false,
-                  },
-                },
-              },
-              required: ["campaignName", "category", "suggestedSegment", "sendTimeRecommendation", "rationale", "emails"],
-              additionalProperties: false,
-            },
-          },
-        }]
-      : [{
-          type: "function",
-          function: {
-            name: "generate_campaign",
-            description: "Generate a complete email campaign with all required fields",
-            parameters: {
-              type: "object",
-              properties: {
-                campaignName: { type: "string" },
-                subject: { type: "string" },
-                previewText: { type: "string" },
-                bodyHtml: { type: "string" },
-                category: { type: "string", enum: ["welcome", "followup", "promotional", "educational", "reactivation"] },
-                suggestedSegment: { type: "string" },
-                sendTimeRecommendation: { type: "string" },
-                rationale: { type: "string" },
-              },
-              required: ["campaignName", "subject", "previewText", "bodyHtml", "category", "suggestedSegment", "sendTimeRecommendation", "rationale"],
-              additionalProperties: false,
-            },
-          },
-        }];
-
     const fnDeclaration = isSequence
       ? {
           name: "generate_sequence",
           description: "Generate a complete multi-email campaign sequence",
-          parameters: tools[0].function.parameters,
+          parameters: {
+            type: SchemaType.OBJECT,
+            properties: {
+              campaignName: { type: SchemaType.STRING },
+              category: { type: SchemaType.STRING, enum: ["welcome", "followup", "promotional", "educational", "reactivation"] },
+              suggestedSegment: { type: SchemaType.STRING },
+              sendTimeRecommendation: { type: SchemaType.STRING },
+              rationale: { type: SchemaType.STRING },
+              emails: {
+                type: SchemaType.ARRAY,
+                items: {
+                  type: SchemaType.OBJECT,
+                  properties: {
+                    step: { type: SchemaType.NUMBER },
+                    subject: { type: SchemaType.STRING },
+                    previewText: { type: SchemaType.STRING },
+                    bodyHtml: { type: SchemaType.STRING },
+                    delayDays: { type: SchemaType.NUMBER },
+                    tip: { type: SchemaType.STRING },
+                  },
+                  required: ["step", "subject", "previewText", "bodyHtml", "delayDays", "tip"],
+                },
+              },
+            },
+            required: ["campaignName", "category", "suggestedSegment", "sendTimeRecommendation", "rationale", "emails"],
+          },
         }
       : {
           name: "generate_campaign",
           description: "Generate a complete email campaign with all required fields",
-          parameters: tools[0].function.parameters,
+          parameters: {
+            type: SchemaType.OBJECT,
+            properties: {
+              campaignName: { type: SchemaType.STRING },
+              subject: { type: SchemaType.STRING },
+              previewText: { type: SchemaType.STRING },
+              bodyHtml: { type: SchemaType.STRING },
+              category: { type: SchemaType.STRING, enum: ["welcome", "followup", "promotional", "educational", "reactivation"] },
+              suggestedSegment: { type: SchemaType.STRING },
+              sendTimeRecommendation: { type: SchemaType.STRING },
+              rationale: { type: SchemaType.STRING },
+            },
+            required: ["campaignName", "subject", "previewText", "bodyHtml", "category", "suggestedSegment", "sendTimeRecommendation", "rationale"],
+          },
         };
 
     const toolName = isSequence ? "generate_sequence" : "generate_campaign";
 
-    const geminiBody = {
-      system_instruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      tools: [{ function_declarations: [fnDeclaration] }],
-      tool_config: { function_calling_config: { mode: "ANY", allowed_function_names: [toolName] } },
-    };
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({
+      model: "gemini-3-flash-preview",
+      systemInstruction: systemPrompt,
+      tools: [{ functionDeclarations: [fnDeclaration as unknown as FunctionDeclaration] }],
+      toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.ANY, allowedFunctionNames: [toolName] } },
+    });
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(geminiBody),
-      }
-    );
-
-    if (!response.ok) {
-      if (response.status === 429) return NextResponse.json({ error: "Rate limit exceeded. Please try again in a moment." }, { status: 429 });
-      const errorText = await response.text();
-      console.error("Gemini API error:", response.status, errorText);
-      return NextResponse.json({ error: "AI generation failed" }, { status: 500 });
-    }
-
-    const data = await response.json();
-    const part = data.candidates?.[0]?.content?.parts?.[0];
-    const fnArgs = part?.functionCall?.args;
+    const result = await model.generateContent(prompt);
+    const candidate = result.response.candidates?.[0];
+    const fnCallPart = candidate?.content?.parts?.find((p) => p.functionCall?.args);
+    const fnArgs = fnCallPart?.functionCall?.args;
 
     if (!fnArgs) {
-      console.error("Gemini response:", JSON.stringify(data, null, 2));
+      console.error("Gemini response:", JSON.stringify(result.response, null, 2));
       return NextResponse.json({ error: "AI did not generate a valid campaign" }, { status: 500 });
     }
 

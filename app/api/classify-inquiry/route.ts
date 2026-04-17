@@ -36,7 +36,8 @@ export async function POST(req: NextRequest) {
     ]);
 
     const emailApiKey: string = process.env.RESEND_API_KEY ?? settings?.email_provider_api_key ?? "";
-    const fromAddress: string = settings?.email_from_address ?? "";
+    // FROM_EMAIL env var takes priority over the DB setting
+    const fromAddress: string = process.env.FROM_EMAIL ?? settings?.email_from_address ?? "";
     const fromName: string = settings?.email_from_name ?? "FitLogic";
     const fromHeader = fromName ? `${fromName} <${fromAddress}>` : fromAddress;
 
