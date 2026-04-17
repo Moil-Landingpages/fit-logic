@@ -411,7 +411,7 @@ function IntegrationsTab({
   const isGoogleGmailConnected = !!settings.google_gmail_token;
 
   const handleGoogleConnect = () => {
-    const clientId = "435907511578-v2n4hf6f2l65g6cv3m97mvcpc58p00o5.apps.googleusercontent.com";
+    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
     const redirectUri = `${window.location.origin}/settings?tab=integrations`;
     const scope = encodeURIComponent(
       "https://www.googleapis.com/auth/calendar.readonly " +

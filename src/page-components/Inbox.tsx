@@ -6,12 +6,35 @@ import { supabase } from "@/integrations/supabase/client";
 import { QK } from "@/lib/queryKeys";
 import { InquiryList, type InquiryRow } from "@/components/InquiryList";
 import { InquiryDetail } from "@/components/InquiryDetail";
-import { Inbox as InboxIcon, Bot, AlertTriangle, CheckCircle } from "lucide-react";
+import { Inbox as InboxIcon, Bot, AlertTriangle, CheckCircle, RefreshCw } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 const Inbox = () => {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+
+  const handleGmailSync = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/sync-gmail", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? "Gmail sync failed");
+      } else if (data.synced === 0) {
+        toast.info(data.message ?? "No new emails from known contacts");
+      } else {
+        toast.success(`Synced ${data.synced} email${data.synced !== 1 ? "s" : ""} from contacts`);
+        queryClient.invalidateQueries({ queryKey: QK.inquiries });
+      }
+    } catch {
+      toast.error("Failed to reach sync endpoint");
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const { data: inquiries = [], isLoading } = useQuery({
     queryKey: QK.inquiries,
@@ -43,11 +66,23 @@ const Inbox = () => {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="font-heading text-2xl font-bold text-foreground">Inbox</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Manage incoming inquiries · AI routes non-critical questions automatically
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-heading text-2xl font-bold text-foreground">Inbox</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Manage incoming inquiries · AI routes non-critical questions automatically
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleGmailSync}
+          disabled={syncing}
+          className="gap-1.5 shrink-0"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+          {syncing ? "Syncing…" : "Sync Gmail"}
+        </Button>
       </div>
 
       {/* KPI strip */}
