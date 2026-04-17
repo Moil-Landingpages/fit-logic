@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +37,68 @@ interface PatientFormProps {
   isSubmitting?: boolean;
 }
 
+const COUNTRY_CODES = [
+  { code: "+1",   flag: "🇺🇸", name: "US / Canada" },
+  { code: "+44",  flag: "🇬🇧", name: "United Kingdom" },
+  { code: "+61",  flag: "🇦🇺", name: "Australia" },
+  { code: "+64",  flag: "🇳🇿", name: "New Zealand" },
+  { code: "+353", flag: "🇮🇪", name: "Ireland" },
+  { code: "+27",  flag: "🇿🇦", name: "South Africa" },
+  { code: "+234", flag: "🇳🇬", name: "Nigeria" },
+  { code: "+254", flag: "🇰🇪", name: "Kenya" },
+  { code: "+233", flag: "🇬🇭", name: "Ghana" },
+  { code: "+91",  flag: "🇮🇳", name: "India" },
+  { code: "+86",  flag: "🇨🇳", name: "China" },
+  { code: "+81",  flag: "🇯🇵", name: "Japan" },
+  { code: "+82",  flag: "🇰🇷", name: "South Korea" },
+  { code: "+49",  flag: "🇩🇪", name: "Germany" },
+  { code: "+33",  flag: "🇫🇷", name: "France" },
+  { code: "+34",  flag: "🇪🇸", name: "Spain" },
+  { code: "+39",  flag: "🇮🇹", name: "Italy" },
+  { code: "+31",  flag: "🇳🇱", name: "Netherlands" },
+  { code: "+55",  flag: "🇧🇷", name: "Brazil" },
+  { code: "+52",  flag: "🇲🇽", name: "Mexico" },
+  { code: "+54",  flag: "🇦🇷", name: "Argentina" },
+  { code: "+57",  flag: "🇨🇴", name: "Colombia" },
+  { code: "+971", flag: "🇦🇪", name: "UAE" },
+  { code: "+966", flag: "🇸🇦", name: "Saudi Arabia" },
+] as const;
+
+const MONTHS = [
+  { value: "01", label: "January" },
+  { value: "02", label: "February" },
+  { value: "03", label: "March" },
+  { value: "04", label: "April" },
+  { value: "05", label: "May" },
+  { value: "06", label: "June" },
+  { value: "07", label: "July" },
+  { value: "08", label: "August" },
+  { value: "09", label: "September" },
+  { value: "10", label: "October" },
+  { value: "11", label: "November" },
+  { value: "12", label: "December" },
+];
+
+const CURRENT_YEAR = new Date().getFullYear();
+const YEARS = Array.from({ length: CURRENT_YEAR - 1929 }, (_, i) => CURRENT_YEAR - i);
+
+function parsePhone(fullPhone: string | undefined): { dialCode: string; localNumber: string } {
+  if (!fullPhone) return { dialCode: "+1", localNumber: "" };
+  const sorted = [...COUNTRY_CODES].sort((a, b) => b.code.length - a.code.length);
+  for (const c of sorted) {
+    if (fullPhone.startsWith(c.code)) {
+      return { dialCode: c.code, localNumber: fullPhone.slice(c.code.length) };
+    }
+  }
+  return { dialCode: "+1", localNumber: fullPhone };
+}
+
+function parseDob(dob: string | undefined): { month: string; year: string } {
+  if (!dob) return { month: "", year: "" };
+  const [year, month] = dob.split("-");
+  return { month: month ?? "", year: year ?? "" };
+}
+
 export function PatientForm({ defaultValues, onSubmit, onCancel, isSubmitting }: PatientFormProps) {
   const { register, handleSubmit, setValue, watch } = useForm<PatientFormData>({
     defaultValues: {
@@ -47,9 +110,39 @@ export function PatientForm({ defaultValues, onSubmit, onCancel, isSubmitting }:
     },
   });
 
+  const { dialCode: initDialCode, localNumber: initLocal } = parsePhone(defaultValues?.phone);
+  const { month: initMonth, year: initYear } = parseDob(defaultValues?.date_of_birth);
+
+  const [dialCode, setDialCode] = useState(initDialCode);
+  const [localPhone, setLocalPhone] = useState(initLocal);
+  const [dobMonth, setDobMonth] = useState(initMonth);
+  const [dobYear, setDobYear] = useState(initYear);
+
   const lead_source = watch("lead_source");
   const pipeline_stage = watch("pipeline_stage");
   const status = watch("status");
+
+  const handleDialCodeChange = (code: string) => {
+    setDialCode(code);
+    setValue("phone", `${code}${localPhone}`);
+  };
+
+  const handleLocalPhoneChange = (number: string) => {
+    setLocalPhone(number);
+    setValue("phone", `${dialCode}${number}`);
+  };
+
+  const handleDobMonthChange = (month: string) => {
+    setDobMonth(month);
+    setValue("date_of_birth", dobYear && month ? `${dobYear}-${month}-01` : "");
+  };
+
+  const handleDobYearChange = (year: string) => {
+    setDobYear(year);
+    setValue("date_of_birth", year && dobMonth ? `${year}-${dobMonth}-01` : "");
+  };
+
+  const selectedCountry = COUNTRY_CODES.find((c) => c.code === dialCode);
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-5 max-h-[65vh] overflow-y-auto pr-2">
@@ -68,19 +161,67 @@ export function PatientForm({ defaultValues, onSubmit, onCancel, isSubmitting }:
             <Input id="last_name" {...register("last_name", { required: true })} placeholder="Smith" className="h-9" />
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="email" className="text-xs">Email</Label>
-            <Input id="email" type="email" {...register("email")} placeholder="jane@company.com" className="h-9" />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="phone" className="text-xs">Phone</Label>
-            <Input id="phone" {...register("phone")} placeholder="(555) 123-4567" className="h-9" />
+        <div className="space-y-1.5">
+          <Label htmlFor="email" className="text-xs">Email</Label>
+          <Input id="email" type="email" {...register("email")} placeholder="jane@company.com" className="h-9" />
+        </div>
+
+        {/* Phone with country code */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">Phone</Label>
+          <div className="flex gap-2">
+            <Select value={dialCode} onValueChange={handleDialCodeChange}>
+              <SelectTrigger className="h-9 w-[110px] shrink-0">
+                <SelectValue>
+                  <span className="flex items-center gap-1.5 text-xs">
+                    <span>{selectedCountry?.flag}</span>
+                    <span className="font-mono">{dialCode}</span>
+                  </span>
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent className="max-h-60">
+                {COUNTRY_CODES.map((c) => (
+                  <SelectItem key={c.code + c.name} value={c.code}>
+                    <span className="flex items-center gap-2 text-xs">
+                      <span>{c.flag}</span>
+                      <span className="font-mono text-muted-foreground">{c.code}</span>
+                      <span>{c.name}</span>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              value={localPhone}
+              onChange={(e) => handleLocalPhoneChange(e.target.value)}
+              placeholder="(555) 123-4567"
+              className="h-9 flex-1"
+              type="tel"
+            />
           </div>
         </div>
+
+        {/* Date of Birth — month + year only */}
         <div className="space-y-1.5">
-          <Label htmlFor="date_of_birth" className="text-xs">Date of Birth</Label>
-          <Input id="date_of_birth" type="date" {...register("date_of_birth")} className="h-9" />
+          <Label className="text-xs">Date of Birth</Label>
+          <div className="grid grid-cols-2 gap-2">
+            <Select value={dobMonth} onValueChange={handleDobMonthChange}>
+              <SelectTrigger className="h-9"><SelectValue placeholder="Month" /></SelectTrigger>
+              <SelectContent>
+                {MONTHS.map((m) => (
+                  <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={dobYear} onValueChange={handleDobYearChange}>
+              <SelectTrigger className="h-9"><SelectValue placeholder="Year" /></SelectTrigger>
+              <SelectContent className="max-h-60">
+                {YEARS.map((y) => (
+                  <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 

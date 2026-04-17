@@ -7,9 +7,39 @@ import { QK } from "@/lib/queryKeys";
 import { toast } from "sonner";
 import {
   Settings as SettingsIcon, Building2, Users, Plug, Mail,
-  Save, Trash2, Plus, CheckCircle2, AlertCircle, ExternalLink,
-  Clock, Calendar, Loader2,
+  Save, Trash2, Plus, CheckCircle2, ExternalLink,
+  Clock, Loader2,
 } from "lucide-react";
+
+function GoogleCalendarIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="5" width="20" height="17" rx="2" fill="white" stroke="#dadce0" strokeWidth="0.5"/>
+      <path d="M2 7a2 2 0 012-2h16a2 2 0 012 2v3H2V7z" fill="#1a73e8"/>
+      <rect x="8" y="2" width="2.5" height="5" rx="1.25" fill="#1565c0"/>
+      <rect x="13.5" y="2" width="2.5" height="5" rx="1.25" fill="#1565c0"/>
+      <rect x="5" y="13" width="4" height="4" rx="0.75" fill="#4285f4" opacity="0.3"/>
+      <rect x="10" y="13" width="4" height="4" rx="0.75" fill="#34a853" opacity="0.5"/>
+      <rect x="15" y="13" width="4" height="4" rx="0.75" fill="#fbbc04" opacity="0.6"/>
+      <rect x="5" y="18" width="4" height="2.5" rx="0.75" fill="#ea4335" opacity="0.4"/>
+      <rect x="10" y="18" width="4" height="2.5" rx="0.75" fill="#4285f4" opacity="0.3"/>
+    </svg>
+  );
+}
+
+function GmailIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none">
+      <path d="M2 6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" fill="white" stroke="#dadce0" strokeWidth="0.5"/>
+      <path d="M2 6l10 7 10-7" stroke="#dadce0" strokeWidth="0.5"/>
+      <path d="M2 6.5V18h3.5V11L2 6.5z" fill="#4285f4"/>
+      <path d="M22 6.5V18h-3.5V11L22 6.5z" fill="#34a853"/>
+      <path d="M5.5 11v7h13V11L12 18 5.5 11z" fill="#ea4335"/>
+      <path d="M2 6.5L12 13.5l10-7L12 4 2 6.5z" fill="#fbbc04"/>
+      <path d="M2 6.5L12 13.5l10-7" fill="none" stroke="#ea4335" strokeWidth="0.3"/>
+    </svg>
+  );
+}
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -395,13 +425,6 @@ function IntegrationsTab({
   onSave: (updates: Partial<PracticeSettings>) => void;
   oauthLoading?: boolean;
 }) {
-  const [emailForm, setEmailForm] = useState({
-    email_provider: settings.email_provider,
-    email_provider_api_key: settings.email_provider_api_key ?? "",
-    email_from_address: settings.email_from_address ?? "",
-    email_from_name: settings.email_from_name ?? "",
-  });
-
   const isGoogleCalendarConnected = !!settings.google_calendar_token;
   const isGoogleGmailConnected = !!settings.google_gmail_token;
 
@@ -448,8 +471,8 @@ function IntegrationsTab({
           {/* Google Calendar */}
           <div className="flex items-center justify-between p-3 rounded-lg border">
             <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-lg bg-blue-50 flex items-center justify-center">
-                <Calendar className="h-5 w-5 text-blue-600" />
+              <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center">
+                <GoogleCalendarIcon className="h-5 w-5" />
               </div>
               <div>
                 <p className="text-sm font-medium">Google Calendar</p>
@@ -459,7 +482,7 @@ function IntegrationsTab({
             <div className="flex items-center gap-2">
               {isGoogleCalendarConnected ? (
                 <>
-                  <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
+                  <Badge className="bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 text-[10px]">
                     <CheckCircle2 className="h-3 w-3 mr-1" /> Connected
                   </Badge>
                   <Button variant="outline" size="sm" onClick={() => handleGoogleDisconnect("calendar")}>
@@ -477,8 +500,8 @@ function IntegrationsTab({
           {/* Gmail */}
           <div className="flex items-center justify-between p-3 rounded-lg border">
             <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-lg bg-red-50 flex items-center justify-center">
-                <Mail className="h-5 w-5 text-red-500" />
+              <div className="h-9 w-9 rounded-lg bg-red-50 dark:bg-red-950/40 flex items-center justify-center">
+                <GmailIcon className="h-5 w-5" />
               </div>
               <div>
                 <p className="text-sm font-medium">Gmail</p>
@@ -488,7 +511,7 @@ function IntegrationsTab({
             <div className="flex items-center gap-2">
               {isGoogleGmailConnected ? (
                 <>
-                  <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
+                  <Badge className="bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 text-[10px]">
                     <CheckCircle2 className="h-3 w-3 mr-1" /> Connected
                   </Badge>
                   <Button variant="outline" size="sm" onClick={() => handleGoogleDisconnect("gmail")}>
@@ -505,8 +528,8 @@ function IntegrationsTab({
         </CardContent>
       </Card>
 
-      {/* Email Provider */}
-      <Card>
+      {/* Email Delivery Provider — temporarily disabled; using Resend directly */}
+      {/* <Card>
         <CardHeader>
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <Mail className="h-4 w-4 text-primary" /> Email Delivery Provider
@@ -583,7 +606,7 @@ function IntegrationsTab({
             </Button>
           </div>
         </CardContent>
-      </Card>
+      </Card> */}
     </div>
   );
 }
