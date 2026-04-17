@@ -13,31 +13,13 @@ import {
 
 function GoogleCalendarIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="2" y="5" width="20" height="17" rx="2" fill="white" stroke="#dadce0" strokeWidth="0.5"/>
-      <path d="M2 7a2 2 0 012-2h16a2 2 0 012 2v3H2V7z" fill="#1a73e8"/>
-      <rect x="8" y="2" width="2.5" height="5" rx="1.25" fill="#1565c0"/>
-      <rect x="13.5" y="2" width="2.5" height="5" rx="1.25" fill="#1565c0"/>
-      <rect x="5" y="13" width="4" height="4" rx="0.75" fill="#4285f4" opacity="0.3"/>
-      <rect x="10" y="13" width="4" height="4" rx="0.75" fill="#34a853" opacity="0.5"/>
-      <rect x="15" y="13" width="4" height="4" rx="0.75" fill="#fbbc04" opacity="0.6"/>
-      <rect x="5" y="18" width="4" height="2.5" rx="0.75" fill="#ea4335" opacity="0.4"/>
-      <rect x="10" y="18" width="4" height="2.5" rx="0.75" fill="#4285f4" opacity="0.3"/>
-    </svg>
+   <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="24" height="24" ><path fill="#FFF" d="M195.368 60.632H60.632v134.736h134.736z"/><path fill="#EA4335" d="M195.368 256L256 195.368l-30.316-5.172l-30.316 5.172l-5.533 27.73z"/><path fill="#188038" d="M0 195.368v40.421C0 246.956 9.044 256 20.21 256h40.422l6.225-30.316l-6.225-30.316l-33.033-5.172z"/><path fill="#1967D2" d="M256 60.632V20.21C256 9.044 246.956 0 235.79 0h-40.422q-5.532 22.554-5.533 33.196q0 10.641 5.533 27.436q20.115 5.76 30.316 5.76T256 60.631"/><path fill="#FBBC04" d="M256 60.632h-60.632v134.736H256z"/><path fill="#34A853" d="M195.368 195.368H60.632V256h134.736z"/><path fill="#4285F4" d="M195.368 0H20.211C9.044 0 0 9.044 0 20.21v175.158h60.632V60.632h134.736z"/><path fill="#4285F4" d="M88.27 165.154c-5.036-3.402-8.523-8.37-10.426-14.94l11.689-4.816q1.59 6.063 5.558 9.398c2.627 2.223 5.827 3.318 9.566 3.318q5.734 0 9.852-3.487c2.746-2.324 4.127-5.288 4.127-8.875q0-5.508-4.345-8.994c-2.897-2.324-6.535-3.486-10.88-3.486h-6.754v-11.57h6.063q5.608 0 9.448-3.033c2.56-2.02 3.84-4.783 3.84-8.303c0-3.132-1.145-5.625-3.435-7.494c-2.29-1.87-5.188-2.813-8.708-2.813c-3.436 0-6.164.91-8.185 2.745a16.1 16.1 0 0 0-4.413 6.754l-11.57-4.817c1.532-4.345 4.345-8.185 8.471-11.503s9.398-4.985 15.798-4.985c4.733 0 8.994.91 12.767 2.745c3.772 1.836 6.736 4.379 8.875 7.613c2.14 3.25 3.2 6.888 3.2 10.93c0 4.126-.993 7.613-2.98 10.476s-4.43 5.052-7.327 6.585v.69a22.25 22.25 0 0 1 9.398 7.327c2.442 3.284 3.672 7.208 3.672 11.79c0 4.58-1.163 8.673-3.487 12.26c-2.324 3.588-5.54 6.417-9.617 8.472c-4.092 2.055-8.69 3.1-13.793 3.1c-5.912.016-11.369-1.685-16.405-5.087m71.797-58.005l-12.833 9.28l-6.417-9.734l23.023-16.607h8.825v78.333h-12.598z"/></svg>
   );
 }
 
 function GmailIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none">
-      <path d="M2 6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" fill="white" stroke="#dadce0" strokeWidth="0.5"/>
-      <path d="M2 6l10 7 10-7" stroke="#dadce0" strokeWidth="0.5"/>
-      <path d="M2 6.5V18h3.5V11L2 6.5z" fill="#4285f4"/>
-      <path d="M22 6.5V18h-3.5V11L22 6.5z" fill="#34a853"/>
-      <path d="M5.5 11v7h13V11L12 18 5.5 11z" fill="#ea4335"/>
-      <path d="M2 6.5L12 13.5l10-7L12 4 2 6.5z" fill="#fbbc04"/>
-      <path d="M2 6.5L12 13.5l10-7" fill="none" stroke="#ea4335" strokeWidth="0.3"/>
-    </svg>
+   <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 193" width="24" height="24" ><path fill="#4285F4" d="M58.182 192.05V93.14L27.507 65.077L0 49.504v125.091c0 9.658 7.825 17.455 17.455 17.455z"/><path fill="#34A853" d="M197.818 192.05h40.727c9.659 0 17.455-7.826 17.455-17.455V49.505l-31.156 17.837l-27.026 25.798z"/><path fill="#EA4335" d="m58.182 93.14l-4.174-38.647l4.174-36.989L128 69.868l69.818-52.364l4.669 34.992l-4.669 40.644L128 145.504z"/><path fill="#FBBC04" d="M197.818 17.504V93.14L256 49.504V26.231c0-21.585-24.64-33.89-41.89-20.945z"/><path fill="#C5221F" d="m0 49.504l26.759 20.07L58.182 93.14V17.504L41.89 5.286C24.61-7.66 0 4.646 0 26.23z"/></svg>
   );
 }
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
