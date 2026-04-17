@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { serverClient } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
@@ -43,26 +44,14 @@ Question: ${question}
 
 Respond with ONLY the answer text, no preamble.`;
 
-    const aiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: "You write clear, helpful FAQ answers for a functional medicine practice. Be specific, warm, and professional." }] },
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-        }),
-      }
-    );
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({
+      model: "gemini-3-flash-preview",
+      systemInstruction: "You write clear, helpful FAQ answers for a functional medicine practice. Be specific, warm, and professional.",
+    });
 
-    if (!aiResponse.ok) {
-      if (aiResponse.status === 429) return NextResponse.json({ error: "Rate limited — please try again in a moment" }, { status: 429 });
-      const errText = await aiResponse.text();
-      throw new Error(`Gemini API error: ${aiResponse.status} ${errText}`);
-    }
-
-    const aiData = await aiResponse.json();
-    const answer = aiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+    const result = await model.generateContent(prompt);
+    const answer = result.response.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
 
     return NextResponse.json({ answer });
   } catch (error) {

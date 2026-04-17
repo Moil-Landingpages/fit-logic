@@ -129,6 +129,7 @@ ${TEXT_STYLE_FORMAT}`;
     const toolName = isSequence ? "generate_sequence" : "generate_campaign";
 
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    
     const model = genAI.getGenerativeModel({
       model: "gemini-3-flash-preview",
       systemInstruction: systemPrompt,

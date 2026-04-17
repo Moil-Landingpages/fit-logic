@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { serverClient } from "@/lib/supabase";
 
 async function sendViaResend(apiKey: string, from: string, to: string, subject: string, html: string) {
@@ -78,23 +79,15 @@ Respond in JSON format:
   "reasoning": "brief explanation"
 }`;
 
-    const aiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: "You are a helpful inquiry classifier. Always respond with valid JSON only, no markdown." }] },
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: "application/json" },
-        }),
-      }
-    );
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({
+      model: "gemini-3-flash-preview",
+      systemInstruction: "You are a helpful inquiry classifier. Always respond with valid JSON only, no markdown.",
+      generationConfig: { responseMimeType: "application/json" },
+    });
 
-    if (!aiResponse.ok) throw new Error(`Gemini API error: ${aiResponse.status} ${await aiResponse.text()}`);
-
-    const aiData = await aiResponse.json();
-    const rawText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    const aiResult = await model.generateContent(prompt);
+    const rawText = aiResult.response.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
     const result = JSON.parse(rawText);
 
     const updates: Record<string, unknown> = {
