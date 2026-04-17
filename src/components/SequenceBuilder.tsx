@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useRef } from "react";
 import DOMPurify from "dompurify";
 import { Plus, Trash2, ArrowDown, Clock, Mail, Eye, EyeOff, Sparkles, Loader2, Info, GripVertical } from "lucide-react";
@@ -10,7 +12,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmailPreview } from "@/components/EmailPreview";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
 export interface SequenceStep {
@@ -110,20 +111,17 @@ export function SequenceBuilder({ steps, onChange }: SequenceBuilderProps) {
   const handleAIImprove = async (step: SequenceStep) => {
     setImprovingStep(step.id);
     try {
-      const { data, error } = await supabase.functions.invoke("generate-campaign", {
-        body: {
-          prompt: `Improve this email (step ${step.step_number} of ${steps.length} in a cold email sequence).
-Current subject: "${step.subject}"
-Current body: "${step.body_html}"
-
-Make it more compelling, personal, and action-oriented. Keep inline HTML styles. Keep it concise.
-Return an improved version maintaining the same general intent but with better copy, stronger hooks, and clearer CTA.`,
+      const res = await fetch("/api/generate-campaign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: `Improve this email (step ${step.step_number} of ${steps.length} in a cold email sequence).\nCurrent subject: "${step.subject}"\nCurrent body: "${step.body_html}"\n\nMake it more compelling, personal, and action-oriented. Keep inline HTML styles. Keep it concise.\nReturn an improved version maintaining the same general intent but with better copy, stronger hooks, and clearer CTA.`,
           mode: "sequence",
           emailCount: 1,
-        },
+        }),
       });
-      if (error) throw new Error(error.message);
-      if (data?.error) throw new Error(data.error);
+      const data = await res.json();
+      if (!res.ok || data?.error) throw new Error(data?.error ?? "Failed");
       const improved = data.emails?.[0] || data;
       updateStep(step.id, {
         subject: improved.subject || step.subject,

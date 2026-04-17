@@ -1,3 +1,5 @@
+"use client";
+
 import { useState } from "react";
 import { Mail, Globe, Phone, PenLine, Search, Filter, AlertTriangle } from "lucide-react";
 import { Input } from "@/components/ui/input";

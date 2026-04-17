@@ -1,3 +1,5 @@
+"use client";
+
 import { useState } from "react";
 import { Sparkles, Loader2, Check, Lightbulb, Clock, Users, ChevronDown, ChevronUp, ShieldCheck, Palette } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,7 +11,6 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { EmailPreview } from "@/components/EmailPreview";
-import { supabase } from "@/integrations/supabase/client";
 import type { Segment } from "@/lib/campaign-data";
 
 interface AICampaignResult {
@@ -51,15 +52,16 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
     setResult(null);
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke("generate-campaign", {
-        body: {
+      const res = await fetch("/api/generate-campaign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           prompt: prompt.trim(),
           segments: segments.map((s) => ({ name: s.name, description: s.description, estimatedCount: s.estimatedCount })),
-        },
+        }),
       });
-
-      if (fnError) throw new Error(fnError.message);
-      if (data?.error) throw new Error(data.error);
+      const data = await res.json();
+      if (!res.ok || data?.error) throw new Error(data?.error ?? "Failed to generate campaign");
       setResult(data as AICampaignResult);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to generate campaign");

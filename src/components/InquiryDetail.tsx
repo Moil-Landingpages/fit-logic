@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useEffect } from "react";
 import { Mail, Globe, Phone, PenLine, Clock, User, Send, AlertTriangle, CheckCircle, Bot, Sparkles, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -66,10 +68,13 @@ export function InquiryDetail({ inquiry, onUpdate }: Props) {
   const handleClassify = async () => {
     setClassifying(true);
     try {
-      const { data, error } = await supabase.functions.invoke("classify-inquiry", {
-        body: { inquiry_id: inquiry.id },
+      const res = await fetch("/api/classify-inquiry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inquiry_id: inquiry.id }),
       });
-      if (error) throw error;
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? "Classification failed");
       if (data?.updates) {
         onUpdate(inquiry.id, data.updates);
         toast.success(data.classification?.is_faq_match

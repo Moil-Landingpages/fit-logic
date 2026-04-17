@@ -1,8 +1,10 @@
+"use client";
+
 import { LayoutDashboard, Mail, Users, ClipboardList, FileText, Share2, Settings, BarChart3, ExternalLink, Inbox, Tent } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
-import { Link } from "react-router-dom";
-import { useLocation } from "react-router-dom";
-import logo from "@/assets/fitlogic-logo.png";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import Image from "next/image";
 
 import {
   Sidebar,
@@ -36,16 +38,15 @@ const secondaryItems = [
 export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
-  const location = useLocation();
-  const currentPath = location.pathname;
+  const pathname = usePathname();
 
-  const isActive = (path: string) => currentPath === path;
+  const isActive = (path: string) => pathname === path;
 
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-3">
-          <img src={logo} alt="FitLogic" className="h-9 w-9 rounded-lg object-contain" />
+          <Image src="/fitlogic-logo.png" alt="FitLogic" width={36} height={36} className="rounded-lg object-contain" />
           {!collapsed && (
             <div>
               <h2 className="font-heading text-sm font-bold text-sidebar-primary-foreground">FitLogic</h2>
@@ -80,7 +81,7 @@ export function AppSidebar() {
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={isActive("/retreat")}>
-                  <Link to="/retreat" className="flex items-center gap-2">
+                  <Link href="/retreat" className="flex items-center gap-2">
                     <Tent className="h-4 w-4" />
                     {!collapsed && <span>The Retreat</span>}
                   </Link>

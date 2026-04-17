@@ -1,3 +1,5 @@
+"use client";
+
 import { STATUS_CONFIG, type InquiryStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 

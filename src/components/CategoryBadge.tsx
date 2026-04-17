@@ -1,3 +1,5 @@
+"use client";
+
 import { CATEGORY_CONFIG, type InquiryCategory } from "@/lib/types";
 import { cn } from "@/lib/utils";
 

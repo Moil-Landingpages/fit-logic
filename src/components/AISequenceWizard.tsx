@@ -1,3 +1,5 @@
+"use client";
+
 import { useState } from "react";
 import { Sparkles, Loader2, Check, ArrowRight, ArrowLeft, Mail, Layers, Users, Clock, Eye, Lightbulb, Pencil, X, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,7 +13,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { EmailPreview } from "@/components/EmailPreview";
-import { supabase } from "@/integrations/supabase/client";
 import type { Segment } from "@/lib/campaign-data";
 
 interface GeneratedEmail {
@@ -65,17 +66,18 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
     setError(null);
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke("generate-campaign", {
-        body: {
+      const res = await fetch("/api/generate-campaign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           prompt: `Goal: ${goal}\n\nNumber of emails in sequence: ${emailCount}\nTone: ${tone}\n${additionalContext ? `Additional context: ${additionalContext}` : ""}`,
           segments: segments.map(s => ({ name: s.name, description: s.description, estimatedCount: s.estimatedCount })),
           mode: "sequence",
           emailCount: parseInt(emailCount),
-        },
+        }),
       });
-
-      if (fnError) throw new Error(fnError.message);
-      if (data?.error) throw new Error(data.error);
+      const data = await res.json();
+      if (!res.ok || data?.error) throw new Error(data?.error ?? "Failed to generate");
 
       if (data && !data.emails) {
         setResult({
