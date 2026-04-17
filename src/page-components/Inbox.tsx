@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { QK } from "@/lib/queryKeys";
@@ -36,7 +36,7 @@ const Inbox = () => {
     }
   };
 
-  const { data: inquiries = [], isLoading } = useQuery({
+  const { data: inquiries = [] } = useQuery({
     queryKey: QK.inquiries,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -47,6 +47,17 @@ const Inbox = () => {
       return data as InquiryRow[];
     },
   });
+
+  useEffect(() => {
+    if (!inquiries.length) {
+      if (selectedId) setSelectedId(null);
+      return;
+    }
+
+    if (!selectedId || !inquiries.some((inquiry) => inquiry.id === selectedId)) {
+      setSelectedId(inquiries[0].id);
+    }
+  }, [inquiries, selectedId]);
 
   const selected = inquiries.find((i) => i.id === selectedId) || null;
 

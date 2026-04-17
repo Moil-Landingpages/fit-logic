@@ -8,7 +8,7 @@ import { CategoryBadge } from "@/components/CategoryBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
-import type { InquiryCategory, InquiryStatus, InquirySource } from "@/lib/types";
+import type { InquiryCategory, InquiryStatus } from "@/lib/types";
 
 const sourceIcons: Record<string, any> = { email: Mail, portal: Globe, phone: Phone, manual: PenLine };
 
@@ -55,6 +55,36 @@ export function InquiryList({ inquiries, selectedId, onSelect }: Props) {
     if (pa !== pb) return pa - pb;
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
+
+  const sections = [
+    {
+      key: "urgent",
+      title: "Urgent & Escalated",
+      subtitle: "Needs immediate attention",
+      items: sorted.filter((inq) => inq.status === "escalated" || inq.category === "Urgent_Red_Flags"),
+    },
+    {
+      key: "queue",
+      title: "Open Queue",
+      subtitle: "Pending and assigned inquiries",
+      items: sorted.filter((inq) => {
+        const urgent = inq.status === "escalated" || inq.category === "Urgent_Red_Flags";
+        return !urgent && (inq.status === "pending" || inq.status === "assigned");
+      }),
+    },
+    {
+      key: "automated",
+      title: "Auto-Replied",
+      subtitle: "Handled by FAQ automation",
+      items: sorted.filter((inq) => inq.status === "auto_responded"),
+    },
+    {
+      key: "resolved",
+      title: "Resolved",
+      subtitle: "Closed conversations",
+      items: sorted.filter((inq) => inq.status === "resolved"),
+    },
+  ].filter((section) => section.items.length > 0);
 
   const urgentCount = inquiries.filter((i) => i.status === "escalated" || i.category === "Urgent_Red_Flags").length;
   const pendingCount = inquiries.filter((i) => i.status === "pending").length;
@@ -113,42 +143,62 @@ export function InquiryList({ inquiries, selectedId, onSelect }: Props) {
       </div>
 
       <div className="flex-1 overflow-auto">
-        {sorted.map((inq) => {
-          const SourceIcon = sourceIcons[inq.source] || Mail;
-          const isSelected = selectedId === inq.id;
-          const isUrgent = inq.category === "Urgent_Red_Flags" || inq.status === "escalated";
-
-          return (
-            <button
-              key={inq.id}
-              onClick={() => onSelect(inq.id)}
-              className={cn(
-                "w-full text-left px-4 py-3.5 border-b transition-colors hover:bg-accent/50",
-                isSelected && "bg-accent border-l-2 border-l-primary",
-                isUrgent && !isSelected && "bg-category-urgent/5 border-l-2 border-l-category-urgent"
-              )}
-            >
-              <div className="flex items-start justify-between gap-2 mb-1.5">
-                <div className="flex items-center gap-2 min-w-0">
-                  <SourceIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <span className="font-medium text-sm truncate">{inq.patient_name}</span>
+        {sections.map((section) => (
+          <div key={section.key}>
+            <div className="sticky top-0 z-10 border-y bg-background/95 px-4 py-2 backdrop-blur">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    {section.title}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">{section.subtitle}</p>
                 </div>
-                <span className="text-[11px] text-muted-foreground whitespace-nowrap">
-                  {formatDistanceToNow(new Date(inq.created_at), { addSuffix: true })}
+                <span className="rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                  {section.items.length}
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{inq.raw_content}</p>
-              <div className="flex items-center gap-1.5">
-                <CategoryBadge category={inq.category as InquiryCategory} />
-                <StatusBadge status={inq.status as InquiryStatus} />
-                {(inq.category_confidence ?? 0) < 0.9 && (
-                  <span className="text-[10px] text-muted-foreground">({Math.round((inq.category_confidence ?? 0) * 100)}%)</span>
-                )}
-              </div>
-            </button>
-          );
-        })}
-        {sorted.length === 0 && (
+            </div>
+
+            {section.items.map((inq) => {
+              const SourceIcon = sourceIcons[inq.source] || Mail;
+              const isSelected = selectedId === inq.id;
+              const isUrgent = inq.category === "Urgent_Red_Flags" || inq.status === "escalated";
+
+              return (
+                <button
+                  key={inq.id}
+                  onClick={() => onSelect(inq.id)}
+                  className={cn(
+                    "w-full border-b px-4 py-3.5 text-left transition-colors hover:bg-accent/50",
+                    isSelected && "border-l-2 border-l-primary bg-accent",
+                    isUrgent && !isSelected && "border-l-2 border-l-category-urgent bg-category-urgent/5"
+                  )}
+                >
+                  <div className="mb-1.5 flex items-start justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <SourceIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate text-sm font-medium">{inq.patient_name}</span>
+                    </div>
+                    <span className="whitespace-nowrap text-[11px] text-muted-foreground">
+                      {formatDistanceToNow(new Date(inq.created_at), { addSuffix: true })}
+                    </span>
+                  </div>
+                  <p className="mb-2 line-clamp-2 text-xs text-muted-foreground">{inq.raw_content}</p>
+                  <div className="flex items-center gap-1.5">
+                    <CategoryBadge category={inq.category as InquiryCategory} />
+                    <StatusBadge status={inq.status as InquiryStatus} />
+                    {(inq.category_confidence ?? 0) < 0.9 && (
+                      <span className="text-[10px] text-muted-foreground">
+                        ({Math.round((inq.category_confidence ?? 0) * 100)}%)
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+        {sections.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
             <Search className="h-8 w-8 mb-3 opacity-40" />
             <p className="text-sm">No inquiries match your filters</p>

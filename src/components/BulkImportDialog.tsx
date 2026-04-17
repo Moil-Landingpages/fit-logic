@@ -35,6 +35,10 @@ const DB_FIELDS = [
   { value: "phone",          label: "Phone" },
   { value: "date_of_birth",  label: "Date of birth" },
   { value: "status",         label: "Status" },
+  { value: "pipeline_stage", label: "Pipeline stage" },
+  { value: "lead_source",    label: "Lead source" },
+  { value: "company",        label: "Company" },
+  { value: "deal_value",     label: "Deal value" },
   { value: "address",        label: "Address" },
   { value: "city",           label: "City" },
   { value: "state",          label: "State" },
@@ -54,6 +58,9 @@ const AUTO_MAP: Record<string, DbField> = {
   lastname:     "last_name",
   "last_name":  "last_name",
   name:         "first_name",
+  "full name":  "first_name",
+  fullname:     "first_name",
+  "contact name": "first_name",
   email:        "email",
   "e-mail":     "email",
   phone:        "phone",
@@ -64,6 +71,14 @@ const AUTO_MAP: Record<string, DbField> = {
   "date of birth": "date_of_birth",
   birthday:     "date_of_birth",
   status:       "status",
+  "pipeline stage": "pipeline_stage",
+  stage:        "pipeline_stage",
+  "lead source": "lead_source",
+  source:       "lead_source",
+  company:      "company",
+  organization: "company",
+  "deal value": "deal_value",
+  amount:       "deal_value",
   address:      "address",
   city:         "city",
   state:        "state",
@@ -76,6 +91,7 @@ const AUTO_MAP: Record<string, DbField> = {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CHUNK_SIZE = 50;
+const FULL_NAME_HEADERS = new Set(["name", "full name", "fullname", "contact name"]);
 
 interface Props {
   open: boolean;
@@ -87,6 +103,36 @@ type ContactType = "lead" | "client";
 
 interface ParsedRow {
   [key: string]: string;
+}
+
+interface BuiltRecord {
+  payload: Record<string, unknown>;
+  hasExplicitFirstName: boolean;
+  hasExplicitLastName: boolean;
+}
+
+function toNameCase(value: string) {
+  const cleaned = value.replace(/[._-]+/g, " ").trim();
+  if (!cleaned) return "";
+  return cleaned
+    .split(/\s+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function splitFullName(value: string) {
+  const cleaned = value.replace(/[._-]+/g, " ").trim();
+  if (!cleaned) return { firstName: "", lastName: "" };
+  const parts = cleaned.split(/\s+/);
+  return {
+    firstName: toNameCase(parts[0] ?? ""),
+    lastName: toNameCase(parts.slice(1).join(" ")),
+  };
+}
+
+function deriveNameFromEmail(email: string) {
+  const localPart = email.split("@")[0] ?? "";
+  return splitFullName(localPart);
 }
 
 export function BulkImportDialog({ open, onOpenChange }: Props) {
@@ -153,31 +199,48 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
   };
 
   // ─── Build DB row from CSV row + mapping ───────────────────────────────────
-  function buildRecord(csvRow: ParsedRow): Record<string, unknown> | null {
+  function buildRecord(csvRow: ParsedRow): BuiltRecord | null {
     const rec: Record<string, unknown> = {};
+    const hasLastNameColumn = Object.values(mapping).includes("last_name");
+    let hasExplicitFirstName = false;
+    let hasExplicitLastName = false;
+
     for (const [csvCol, dbField] of Object.entries(mapping)) {
       if (dbField === "_skip") continue;
       const raw = (csvRow[csvCol] ?? "").trim();
       if (!raw) continue;
+      const header = csvCol.toLowerCase().trim();
 
       if (dbField === "tags") {
         rec[dbField] = raw.split(",").map((t) => t.trim()).filter(Boolean);
+      } else if (dbField === "deal_value") {
+        const numericValue = Number(raw.replace(/[^0-9.-]/g, ""));
+        if (!Number.isNaN(numericValue)) rec.deal_value = numericValue;
       } else if (dbField === "zip") {
         rec["zip_code"] = raw;
+      } else if (dbField === "first_name" && FULL_NAME_HEADERS.has(header) && !hasLastNameColumn) {
+        const { firstName, lastName } = splitFullName(raw);
+        if (firstName) rec.first_name = firstName;
+        if (lastName) rec.last_name = lastName;
+        hasExplicitFirstName = !!firstName;
+        hasExplicitLastName = !!lastName;
       } else {
-        rec[dbField] = raw;
+        rec[dbField] = dbField === "email" ? raw.toLowerCase() : raw;
+        if (dbField === "first_name") hasExplicitFirstName = true;
+        if (dbField === "last_name") hasExplicitLastName = true;
       }
     }
 
     // Require at least email or (first_name + last_name)
     const hasEmail = typeof rec.email === "string" && EMAIL_RE.test(rec.email as string);
-    const hasName  = rec.first_name || rec.last_name;
+    const hasName = typeof rec.first_name === "string" && rec.first_name.trim().length > 0;
     if (!hasEmail && !hasName) return null;
 
     // Default required field — use selected contact type
     if (!rec.status) rec.status = contactType;
+    if (!rec.pipeline_stage) rec.pipeline_stage = "new_lead";
 
-    return rec;
+    return { payload: rec, hasExplicitFirstName, hasExplicitLastName };
   }
 
   // ─── Import ────────────────────────────────────────────────────────────────
@@ -190,42 +253,105 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
 
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
       const chunk = rows.slice(i, i + CHUNK_SIZE);
-      const records: Record<string, unknown>[] = [];
-      const chunkErrors: string[] = [];
+      const records: Array<{ rowNumber: number; payload: Record<string, unknown>; hasExplicitFirstName: boolean; hasExplicitLastName: boolean }> = [];
 
-      for (const row of chunk) {
+      for (let offset = 0; offset < chunk.length; offset += 1) {
+        const row = chunk[offset];
+        const rowNumber = i + offset + 2;
         const rec = buildRecord(row);
         if (!rec) {
           skipped++;
           continue;
         }
-        // Email format check
-        if (rec.email && !EMAIL_RE.test(rec.email as string)) {
+
+        if (rec.payload.email && !EMAIL_RE.test(rec.payload.email as string)) {
           errors++;
-          errList.push(`Row ${i + chunk.indexOf(row) + 2}: invalid email "${rec.email}"`);
+          errList.push(`Row ${rowNumber}: invalid email "${rec.payload.email}"`);
           continue;
         }
-        records.push(rec);
+
+        records.push({ rowNumber, ...rec });
       }
 
       if (records.length > 0) {
+        const emails = records
+          .map((record) => record.payload.email)
+          .filter((email): email is string => typeof email === "string" && EMAIL_RE.test(email));
+
+        const existingByEmail = new Map<string, { first_name: string; last_name: string }>();
+        if (emails.length > 0) {
+          const { data: existing } = await supabase
+            .from("patients")
+            .select("email, first_name, last_name")
+            .in("email", emails);
+
+          for (const patient of existing ?? []) {
+            if (patient.email) {
+              existingByEmail.set(patient.email.toLowerCase(), {
+                first_name: patient.first_name,
+                last_name: patient.last_name,
+              });
+            }
+          }
+        }
+
+        const normalizedRecords = records.map((record) => {
+          const payload = { ...record.payload };
+          const email = typeof payload.email === "string" ? payload.email.toLowerCase() : null;
+          const existing = email ? existingByEmail.get(email) : null;
+
+          if (!record.hasExplicitFirstName || !String(payload.first_name ?? "").trim()) {
+            if (existing?.first_name) {
+              payload.first_name = existing.first_name;
+            } else if (email) {
+              payload.first_name = deriveNameFromEmail(email).firstName || "Imported";
+            }
+          }
+
+          if (!record.hasExplicitLastName) {
+            if (existing?.last_name) {
+              payload.last_name = existing.last_name;
+            } else if (email) {
+              payload.last_name = deriveNameFromEmail(email).lastName || "";
+            } else {
+              payload.last_name = "";
+            }
+          } else {
+            payload.last_name = typeof payload.last_name === "string" ? payload.last_name.trim() : "";
+          }
+
+          return { ...record, payload };
+        });
+
         const { error } = await supabase
           .from("patients")
-          .upsert(records as any, {
+          .upsert(normalizedRecords.map((record) => record.payload) as any, {
             onConflict: "email",
             ignoreDuplicates: false,
           });
 
         if (error) {
-          errors += records.length;
-          chunkErrors.push(`Chunk ${Math.floor(i / CHUNK_SIZE) + 1}: ${error.message}`);
+          for (const record of normalizedRecords) {
+            const { error: rowError } = await supabase
+              .from("patients")
+              .upsert(record.payload as any, {
+                onConflict: "email",
+                ignoreDuplicates: false,
+              });
+
+            if (rowError) {
+              errors++;
+              errList.push(`Row ${record.rowNumber}: ${rowError.message}`);
+            } else {
+              inserted++;
+            }
+          }
         } else {
           inserted += records.length;
         }
       }
 
-      errList.push(...chunkErrors);
-      setProgress(Math.round(((i + CHUNK_SIZE) / rows.length) * 100));
+      setProgress(Math.round((Math.min(i + chunk.length, rows.length) / rows.length) * 100));
     }
 
     setProgress(100);

@@ -6,9 +6,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { QK } from "@/lib/queryKeys";
 import { toast } from "@/hooks/use-toast";
 import {
-  Users, Plus, Search, MoreHorizontal, Mail, Phone, Building2,
+  Users, Plus, Search, MoreHorizontal, Mail, Building2,
   Eye, Pencil, Trash2, ChevronLeft, ArrowUpDown, Tag, StickyNote,
-  MapPin, DollarSign, TrendingUp, Clock, Send, X, Filter, Upload,
+  TrendingUp, Send, X, Filter, Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +48,10 @@ type Patient = {
   zip_code: string | null;
   insurance_provider: string | null;
   insurance_id: string | null;
+  company: string | null;
+  deal_value: number | null;
+  lead_source: string | null;
+  pipeline_stage: string;
   status: string;
   tags: string[] | null;
   notes: string | null;
@@ -119,10 +123,20 @@ const PIPELINE_STAGE_LABELS: Record<string, string> = {
 const SESSION_KEY = "contacts_filters";
 
 function loadFilters() {
+  if (typeof window === "undefined") return null;
   try {
     const raw = sessionStorage.getItem(SESSION_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
+}
+
+function formatCurrency(value: number | null) {
+  if (value == null || Number.isNaN(value)) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value);
 }
 
 export default function Patients() {
@@ -212,6 +226,10 @@ export default function Patients() {
     email: form.email || null,
     phone: form.phone || null,
     date_of_birth: form.date_of_birth || null,
+    company: form.company || null,
+    deal_value: form.deal_value ? Number(form.deal_value) : null,
+    lead_source: form.lead_source || null,
+    pipeline_stage: form.pipeline_stage || "new_lead",
     gender: (form as unknown as Record<string, unknown>).gender as string || null,
     address: form.address || null,
     city: form.city || null,
@@ -306,20 +324,22 @@ export default function Patients() {
   const filtered = useMemo(() => {
     let result = allPatients;
     if (statusFilter !== "all") result = result.filter(p => p.status === statusFilter);
-    if (stageFilter !== "all") result = result.filter(p => p.status === stageFilter);
-    if (sourceFilter !== "all") result = result; // lead_source not in DB yet
+    if (stageFilter !== "all") result = result.filter(p => p.pipeline_stage === stageFilter);
+    if (sourceFilter !== "all") result = result.filter(p => p.lead_source === sourceFilter);
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(p =>
         p.first_name.toLowerCase().includes(q) || p.last_name.toLowerCase().includes(q) ||
-        (p.email?.toLowerCase().includes(q) ?? false) || (p.phone?.includes(q) ?? false)
+        (p.email?.toLowerCase().includes(q) ?? false) ||
+        (p.phone?.includes(q) ?? false) ||
+        (p.company?.toLowerCase().includes(q) ?? false)
       );
     }
     if (sortBy === "name") result = [...result].sort((a, b) => a.first_name.localeCompare(b.first_name));
-    else if (sortBy === "company") result = [...result].sort((a, b) => a.first_name.localeCompare(b.first_name));
-    else if (sortBy === "deal_value") result = [...result].sort((a, b) => a.first_name.localeCompare(b.first_name));
+    else if (sortBy === "company") result = [...result].sort((a, b) => (a.company || "").localeCompare(b.company || ""));
+    else if (sortBy === "deal_value") result = [...result].sort((a, b) => (b.deal_value || 0) - (a.deal_value || 0));
     return result;
-  }, [patients, statusFilter, stageFilter, sourceFilter, search, sortBy]);
+  }, [allPatients, statusFilter, stageFilter, sourceFilter, search, sortBy]);
 
   // ─── DETAIL VIEW ───
   if (viewing) {
@@ -346,9 +366,8 @@ export default function Patients() {
               </h1>
               <div className="flex items-center gap-2">
                 <StatusPill status={p.status} />
-                <div className="flex items-center gap-2">
-                <StatusPill status={p.status} />
-                </div>
+                <Badge variant="outline">{PIPELINE_STAGE_LABELS[p.pipeline_stage] ?? p.pipeline_stage}</Badge>
+                <LeadSourceBadge source={p.lead_source} />
               </div>
             </div>
           </div>
@@ -381,21 +400,19 @@ export default function Patients() {
           <Card className="shadow-card">
             <CardContent className="p-4 text-center">
               <p className="text-2xl font-heading font-bold text-foreground">{p.status}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Status</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Lifecycle</p>
+            </CardContent>
+          </Card>
+          <Card className="shadow-card">
+            <CardContent className="p-4 text-center">
+              <p className="text-2xl font-heading font-bold text-foreground">{PIPELINE_STAGE_LABELS[p.pipeline_stage] ?? p.pipeline_stage}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Stage</p>
             </CardContent>
           </Card>
           <Card className="shadow-card">
             <CardContent className="p-4 text-center">
               <p className="text-2xl font-heading font-bold text-foreground">{contactCampaigns.length}</p>
               <p className="text-xs text-muted-foreground mt-0.5">Campaigns</p>
-            </CardContent>
-          </Card>
-          <Card className="shadow-card">
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-heading font-bold text-foreground">
-                {contactCampaigns.filter((c: any) => c.opened_at).length}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">Emails Opened</p>
             </CardContent>
           </Card>
           <Card className="shadow-card">
@@ -439,6 +456,11 @@ export default function Patients() {
                   </div>
                   <Separator />
                   <div className="flex justify-between">
+                    <span className="text-muted-foreground">Pipeline Stage</span>
+                    <span className="font-medium">{PIPELINE_STAGE_LABELS[p.pipeline_stage] ?? p.pipeline_stage}</span>
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between">
                     <span className="text-muted-foreground">Location</span>
                     <span className="font-medium text-right">
                       {[p.city, p.state].filter(Boolean).join(", ") || "—"}
@@ -464,18 +486,23 @@ export default function Patients() {
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Insurance</span>
-                    <span className="font-medium">{p.insurance_provider || "—"}</span>
+                    <span className="text-muted-foreground">Company</span>
+                    <span className="font-medium">{p.company || "—"}</span>
                   </div>
                   <Separator />
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Insurance ID</span>
-                    <span className="font-medium">{p.insurance_id || "—"}</span>
+                    <span className="text-muted-foreground">Deal Value</span>
+                    <span className="font-medium">{formatCurrency(p.deal_value)}</span>
                   </div>
                   <Separator />
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Status</span>
-                    <StatusPill status={p.status} />
+                    <span className="text-muted-foreground">Lead Source</span>
+                    <LeadSourceBadge source={p.lead_source} />
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Stage</span>
+                    <span className="font-medium">{PIPELINE_STAGE_LABELS[p.pipeline_stage] ?? p.pipeline_stage}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -606,6 +633,10 @@ export default function Patients() {
                 first_name: editing.first_name, last_name: editing.last_name,
                 email: editing.email || "", phone: editing.phone || "",
                 date_of_birth: editing.date_of_birth || "",
+                company: editing.company || "",
+                deal_value: editing.deal_value ? String(editing.deal_value) : "",
+                lead_source: editing.lead_source || "",
+                pipeline_stage: editing.pipeline_stage || "new_lead",
                 address: editing.address || "", city: editing.city || "",
                 state: editing.state || "", zip_code: editing.zip_code || "",
                 status: editing.status, tags: (editing.tags || []).join(", "),
@@ -738,7 +769,7 @@ export default function Patients() {
                   <DropdownMenuItem key={key} onClick={() => setStageFilter(key)}>
                     {label}
                     <span className="ml-auto text-muted-foreground text-xs">
-                      {allPatients.filter(p => p.status === key).length}
+                      {allPatients.filter(p => p.pipeline_stage === key).length}
                     </span>
                   </DropdownMenuItem>
                 ))}
@@ -760,7 +791,7 @@ export default function Patients() {
                   <DropdownMenuItem key={key} onClick={() => setSourceFilter(key)}>
                     {cfg.label}
                     <span className="ml-auto text-muted-foreground text-xs">
-                      {allPatients.filter(p => p.status === key).length}
+                      {allPatients.filter(p => p.lead_source === key).length}
                     </span>
                   </DropdownMenuItem>
                 ))}
@@ -815,7 +846,8 @@ export default function Patients() {
                   </TableHead>
                   <TableHead className="font-medium">Contact</TableHead>
                   <TableHead className="font-medium">Email</TableHead>
-                  <TableHead className="font-medium">Type</TableHead>
+                  <TableHead className="font-medium">Source</TableHead>
+                  <TableHead className="font-medium">Stage</TableHead>
                   <TableHead className="font-medium">Status</TableHead>
                   <TableHead className="font-medium">Tags</TableHead>
                   <TableHead className="w-10" />
@@ -843,7 +875,9 @@ export default function Patients() {
                           <p className="font-medium text-foreground group-hover:text-primary transition-colors">
                             {p.first_name} {p.last_name}
                           </p>
-                          <p className="text-[11px] text-muted-foreground">{relativeDate(p.created_at)}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {[p.company, relativeDate(p.created_at)].filter(Boolean).join(" • ")}
+                          </p>
                         </div>
                       </div>
                     </TableCell>
@@ -851,7 +885,10 @@ export default function Patients() {
                       <div className="text-muted-foreground">{p.email || "—"}</div>
                       {p.phone && <div className="text-[11px] text-muted-foreground/70">{p.phone}</div>}
                     </TableCell>
-                    <TableCell><StatusPill status={p.status} /></TableCell>
+                    <TableCell><LeadSourceBadge source={p.lead_source} /></TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{PIPELINE_STAGE_LABELS[p.pipeline_stage] ?? p.pipeline_stage}</Badge>
+                    </TableCell>
                     <TableCell><StatusPill status={p.status} /></TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
@@ -924,6 +961,10 @@ export default function Patients() {
               first_name: editing.first_name, last_name: editing.last_name,
               email: editing.email || "", phone: editing.phone || "",
               date_of_birth: editing.date_of_birth || "",
+              company: editing.company || "",
+              deal_value: editing.deal_value ? String(editing.deal_value) : "",
+              lead_source: editing.lead_source || "",
+              pipeline_stage: editing.pipeline_stage || "new_lead",
               address: editing.address || "", city: editing.city || "",
               state: editing.state || "", zip_code: editing.zip_code || "",
               status: editing.status, tags: (editing.tags || []).join(", "),
