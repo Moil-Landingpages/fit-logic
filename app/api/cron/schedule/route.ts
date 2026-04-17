@@ -90,6 +90,13 @@ async function processCampaigns(supabase: SupabaseClient) {
   const results: unknown[] = [];
 
   for (const campaign of campaigns) {
+    // Skip if already sent today (prevent hourly re-sends)
+    const lastSentAt = campaign.last_sent_at ? new Date(campaign.last_sent_at) : null;
+    if (lastSentAt && lastSentAt.toDateString() === now.toDateString()) {
+      results.push({ campaign: campaign.name, skipped: "already sent today" });
+      continue;
+    }
+
     const bhStart = campaign.business_hours_start ?? settings?.business_hours_start ?? 8;
     const bhEnd = campaign.business_hours_end ?? settings?.business_hours_end ?? 18;
     const bizDays: string[] = campaign.business_days ?? settings?.business_days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"];
@@ -247,7 +254,10 @@ async function processCampaigns(supabase: SupabaseClient) {
     if (sentCount > 0) {
       try {
         const { data: fresh } = await supabase.from("campaigns").select("sent_count").eq("id", campaign.id).single();
-        await supabase.from("campaigns").update({ sent_count: (fresh?.sent_count ?? campaign.sent_count ?? 0) + sentCount }).eq("id", campaign.id);
+        await supabase.from("campaigns").update({
+          sent_count: (fresh?.sent_count ?? campaign.sent_count ?? 0) + sentCount,
+          last_sent_at: now.toISOString(), // Track that we sent today
+        }).eq("id", campaign.id);
       } catch (err) {
         console.error("Error updating sent count:", err);
       }
