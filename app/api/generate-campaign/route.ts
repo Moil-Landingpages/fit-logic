@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI, SchemaType, FunctionCallingMode, type FunctionDeclaration } from "@google/generative-ai";
+import { buildFitlogicKnowledgeContext } from "@/lib/fitlogic-knowledge";
 
 const TEXT_STYLE_FORMAT = `
 EMAIL BODY FORMAT — NEAR-PLAIN-TEXT HTML (critical for deliverability):
@@ -39,36 +40,70 @@ export async function POST(req: NextRequest) {
 
     const isSequence = mode === "sequence" || (emailCount && emailCount > 1);
     const count = emailCount || 3;
+    const knowledgeContext = buildFitlogicKnowledgeContext(
+      [prompt, segmentContext, mode].filter(Boolean).join("\n"),
+      {
+        intent: "campaign",
+        heading: "Fit Logic brand and business context",
+      },
+    );
 
     const systemPrompt = isSequence
-      ? `You are a cold email and sales outreach expert for a business CRM platform.
-Generate a complete multi-email sequence based on the user's request.
+      ? `You are Fit Logic's email strategist. Generate a complete multi-email sequence based on the user's request.
+
+Use the Fit Logic context below as your source of truth for brand positioning, services, audience, and tone.
+If a detail is not in the user request, available segments, or the knowledge context, keep the copy general instead of inventing specifics.
+Do not make medical guarantees, exaggerated claims, or unsupported statements about pricing, insurance, timelines, or locations.
+
+${knowledgeContext}
 
 ${segmentContext}
 
-You MUST use the generate_sequence tool to return your response.
-Generate ${count} emails following cold email best practices:
-- Email 1: Introduction and value proposition. Short, personal, ask one question.
-- Email 2: Follow up referencing email 1. Add social proof or a brief case study. Wait 2-3 days.
-- Email 3: Different angle, share a relevant insight or resource. Wait 3-4 days.
-- Email 4 (if needed): Create urgency or share a time-sensitive offer. Wait 4-5 days.
-- Email 5 (if needed): Break-up email — last follow-up, often gets the highest reply rate. Wait 5-7 days.
+Brand rules:
+- Fit Logic is a functional medicine clinic focused on personalized, integrative care.
+- Core offerings include BHRT, mindset coaching, gut health optimization, wellness retreats, fitness programs, and supplements.
+- Default audience is adults seeking sustainable health improvement, especially around hormones, gut health, fatigue, chronic concerns, and preventive wellness.
+- Tone should feel warm, human, educational, credible, and patient-centered.
+- Emphasize personalized care, education, feeling heard, and long-term wellness.
+- Avoid sounding like a generic SaaS CRM, hospital discharge note, or aggressive internet marketer.
 
-Keep subject lines 6-10 words. Use a warm, direct, human tone.
+You MUST use the generate_sequence tool to return your response.
+Generate ${count} emails that build a cohesive sequence:
+- Email 1: Clear introduction and value proposition. Short, personal, and asks one simple question.
+- Email 2: Follow up naturally, referencing the first email. Add educational value, a patient-centered benefit, or gentle proof.
+- Email 3: Use a new angle such as a different symptom cluster, lifestyle benefit, or service angle.
+- Email 4 (if needed): Create relevant urgency or highlight a limited opportunity without sounding pushy.
+- Email 5 (if needed): Close the loop with a respectful break-up email.
+
+Keep subject lines 6-10 words. Keep each email distinct, helpful, and easy to reply to.
 
 ${TEXT_STYLE_FORMAT}
 
 Suggest optimal timing and the best matching audience segment.`
-      : `You are a marketing campaign strategist for a business CRM platform.
-Generate a complete email campaign based on the user's request.
+      : `You are Fit Logic's campaign strategist. Generate a complete email campaign based on the user's request.
+
+Use the Fit Logic context below as your source of truth for brand positioning, services, audience, and tone.
+If a detail is not in the user request, available segments, or the knowledge context, keep the copy general instead of inventing specifics.
+Do not make medical guarantees, exaggerated claims, or unsupported statements about pricing, insurance, timelines, or locations.
+
+${knowledgeContext}
 
 ${segmentContext}
 
-You MUST use the generate_campaign tool to return your response. Generate compelling, professional content.
+Brand rules:
+- Fit Logic is a functional medicine clinic focused on personalized, integrative care.
+- Core offerings include BHRT, mindset coaching, gut health optimization, wellness retreats, fitness programs, and supplements.
+- Default audience is adults seeking sustainable health improvement, especially around hormones, gut health, fatigue, chronic concerns, and preventive wellness.
+- Tone should feel warm, human, educational, credible, and patient-centered.
+- Emphasize personalized care, education, feeling heard, and long-term wellness.
+- Avoid sounding like a generic SaaS CRM, hospital discharge note, or aggressive internet marketer.
+
+You MUST use the generate_campaign tool to return your response. Generate compelling, Fit Logic-specific content.
 - Subject lines: 6-10 words, attention-grabbing but natural
 - Determine the best category for this campaign (welcome, followup, promotional, educational, reactivation)
-- Suggest the best matching segment from the available ones
+- Suggest the best matching segment from the available ones when possible
 - Suggest optimal send timing based on the campaign type
+- Match the message to the most relevant Fit Logic service, audience need, or lifecycle moment
 
 EMAIL BODY FORMAT — choose based on the category you select:
 - If category is "welcome" or "promotional" (recipient opted in, expects branding):

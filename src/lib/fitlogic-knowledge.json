@@ -1,0 +1,229 @@
+{
+  "brandName": "Fit Logic",
+  "source": "knowledge_chunks-export-2026-04-19_00-36-27.csv",
+  "chunks": [
+    {
+      "id": "e98dc2d7-afcf-4ca2-8ffb-458ea4411c0c",
+      "documentName": "Business Plan",
+      "sectionTitle": "Executive Summary",
+      "category": "overview",
+      "tags": [
+        "mission",
+        "vision",
+        "value-prop",
+        "target-market"
+      ],
+      "content": "Fit Logic is a functional medicine clinic dedicated to helping individuals achieve high-quality, sustainable health throughout their lives. We provide comprehensive services, including Bioidentical Hormone Replacement Therapy (BHRT), mindset coaching, gut health solutions, and wellness retreats. Our unique value proposition lies in our commitment to personalized care, spending ample time with patients to address their unique health challenges and ensuring they feel heard and cared for. Our target market includes men and women, ages 25-65, predominantly located within a 10-15 mile radius of our clinic, with an average household income of $100,000. As the only functional medicine provider in our area, we face minimal competition. Projected revenue of $500,000 by end of 2023, goal to scale to $9 million by 2033.",
+      "tokenEstimate": 180,
+      "createdAt": "2026-03-25 20:33:23.229552+00"
+    },
+    {
+      "id": "69b8a2a3-4b9a-4e33-838e-7c35aecaf6d8",
+      "documentName": "Business Plan",
+      "sectionTitle": "Mission & Vision",
+      "category": "overview",
+      "tags": [
+        "mission",
+        "vision",
+        "brand"
+      ],
+      "content": "Mission Statement: Fit Logic is committed to helping individuals live longer, healthier lives through education and integrative treatment approaches that address mindset, hormone optimization, gut health, and overall wellness. Vision Statement: To be the leading functional medicine provider in our community, recognized for our excellence in patient care and our commitment to empowering individuals to achieve their health goals.",
+      "tokenEstimate": 70,
+      "createdAt": "2026-03-25 20:33:23.229552+00"
+    },
+    {
+      "id": "eeeadd4e-3bf4-41cf-9782-118c40ef0cc8",
+      "documentName": "Business Plan",
+      "sectionTitle": "Services Offered",
+      "category": "services",
+      "tags": [
+        "BHRT",
+        "coaching",
+        "gut-health",
+        "retreats",
+        "supplements"
+      ],
+      "content": "Fit Logic offers a range of services: Bioidentical Hormone Replacement Therapy (BHRT), Mindset Coaching, Gut Health Optimization, Wellness Retreats, Fitness Programs, Supplement Provision.",
+      "tokenEstimate": 60,
+      "createdAt": "2026-03-25 20:33:23.229552+00"
+    },
+    {
+      "id": "1355d9e0-dd7b-447b-8741-04c4bb9f7de2",
+      "documentName": "Business Plan",
+      "sectionTitle": "Revenue Streams",
+      "category": "pricing",
+      "tags": [
+        "revenue",
+        "pricing",
+        "memberships",
+        "events",
+        "products"
+      ],
+      "content": "Multiple revenue streams: 1) Consultation Charges for initial and follow-up sessions. 2) Membership Plans - monthly or annual subscriptions for group coaching and fitness. 3) Event Hosting - wellness retreats and community events. 4) Product Sales - supplements and wellness products.",
+      "tokenEstimate": 80,
+      "createdAt": "2026-03-25 20:33:23.229552+00"
+    },
+    {
+      "id": "297933c2-d086-46f7-97d1-7b36148ba234",
+      "documentName": "Business Plan",
+      "sectionTitle": "Target Customers",
+      "category": "audience",
+      "tags": [
+        "demographics",
+        "target-market",
+        "geography"
+      ],
+      "content": "Primary audience: men and women aged 25-65 seeking solutions for hormonal issues (menopause, andropause), autoimmune conditions, general wellness and preventive care. Geographic Focus: 10-15 mile radius, average household income $100,000.",
+      "tokenEstimate": 90,
+      "createdAt": "2026-03-25 20:33:23.229552+00"
+    },
+    {
+      "id": "863d2f29-6949-4a4f-be3e-44eece2aa56b",
+      "documentName": "Business Plan",
+      "sectionTitle": "Market Analysis",
+      "category": "market",
+      "tags": [
+        "TAM",
+        "SAM",
+        "SOM",
+        "market-size",
+        "growth"
+      ],
+      "content": "TAM: 40,000 potential patients, $60M/year. SAM: 10,000 patients interested in functional medicine, $15M/year. SOM: 500 patients in first 3 years, $750K/year. Market growing at 15% CAGR from 2023 to 2030.",
+      "tokenEstimate": 100,
+      "createdAt": "2026-03-25 20:33:23.229552+00"
+    },
+    {
+      "id": "6dac6ce8-c227-41e3-81e1-f3f92d58bdf8",
+      "documentName": "Business Plan",
+      "sectionTitle": "Customer Personas",
+      "category": "audience",
+      "tags": [
+        "personas",
+        "Sarah",
+        "John",
+        "Alice"
+      ],
+      "content": "1) Sarah - Health-Conscious Professional: 35-50, corporate, seeks work-life-health balance, struggles with stress/fatigue, reached via social media. 2) John - Middle-Aged Dad: 40-55, wants healthy example for kids, hormonal imbalances/fatigue/weight gain, motivated by peer results. 3) Alice - Retired Individual: 60-75, managing chronic conditions, values expertise and personalized care, reached via community events.",
+      "tokenEstimate": 150,
+      "createdAt": "2026-03-25 20:33:23.229552+00"
+    },
+    {
+      "id": "c35609e1-36b1-4c67-97f6-52d877cbdf09",
+      "documentName": "Business Plan",
+      "sectionTitle": "Customer Segments",
+      "category": "audience",
+      "tags": [
+        "segments",
+        "corporate",
+        "seniors",
+        "families"
+      ],
+      "content": "Health Seekers: 10,000 (25%). Corporate Wellness: 15,000 (37.5%). Retired Population: 5,000 (12.5%). Families: 10,000 (25%). All within 15-mile radius.",
+      "tokenEstimate": 60,
+      "createdAt": "2026-03-25 20:33:23.229552+00"
+    },
+    {
+      "id": "48033caf-6274-4ba8-9a52-fa8946e1ae3e",
+      "documentName": "Business Plan",
+      "sectionTitle": "Competitor Landscape",
+      "category": "competition",
+      "tags": [
+        "competitors",
+        "pricing",
+        "differentiation"
+      ],
+      "content": "Local Health Clinic: General practice, $100-200/visit. Health Coach: Personalized plans, $75-150/session. Online Wellness App: $10/month. Fitness Center: $50/month. Traditional Doctors: Insurance-based. Fit Logic differentiates with comprehensive functional medicine, personalized care, and community focus.",
+      "tokenEstimate": 90,
+      "createdAt": "2026-03-25 20:33:23.229552+00"
+    },
+    {
+      "id": "8da1d734-d0b5-4384-8122-c1fd9c34880b",
+      "documentName": "Business Plan",
+      "sectionTitle": "Marketing & Customer Acquisition",
+      "category": "marketing",
+      "tags": [
+        "CAC",
+        "funnel",
+        "SEO",
+        "ads",
+        "social-media",
+        "conversion"
+      ],
+      "content": "Funnel: Awareness > Consideration > Conversion > Retention. SEO ($500-1,750/mo), Paid Ads ($750-1,250/mo mgmt + $750-1,500/mo spend), Social Media ($500-1,000/mo). Monthly Budget: ~$3,000. Reach: 30,000/month. Conversion: 2% = 600 inquiries = 30 customers. CAC: $100. Payback: ~8.5 weeks (ARPU $500, 70% margin).",
+      "tokenEstimate": 150,
+      "createdAt": "2026-03-25 20:33:23.229552+00"
+    },
+    {
+      "id": "81821ac1-2752-4726-8499-8268acd0cfca",
+      "documentName": "Business Plan",
+      "sectionTitle": "Operations & Team",
+      "category": "operations",
+      "tags": [
+        "team",
+        "capacity",
+        "hiring",
+        "staff"
+      ],
+      "content": "Hybrid model from central clinic. Team: Megan (Managing Provider), Two Providers, Nurse, Practice Manager, Massage Therapist, Mindset Coach. Planned: Clinical Administrator, additional providers. Capacity: ~50 active clients per provider, ~200 total monthly.",
+      "tokenEstimate": 100,
+      "createdAt": "2026-03-25 20:33:23.229552+00"
+    },
+    {
+      "id": "25a9c9fd-2cfb-45f0-999e-fc984ee376ad",
+      "documentName": "Business Plan",
+      "sectionTitle": "Strategic Roadmap & KPIs",
+      "category": "strategy",
+      "tags": [
+        "roadmap",
+        "KPIs",
+        "milestones",
+        "growth"
+      ],
+      "content": "Y1: Optimize services, enhance marketing, launch education, online presence. Y2: Group events/retreats, expand marketing, community partnerships. Y3: Revenue targets, potential second location. KPIs - Active Customers: Y1=30, Y2=60, Y3=100. MRR: Y1=$42K, Y2=$84K, Y3=$140K. Churn: Y1=10%, Y2=8%, Y3=6%.",
+      "tokenEstimate": 100,
+      "createdAt": "2026-03-25 20:33:23.229552+00"
+    },
+    {
+      "id": "c46cd4bb-934e-485d-946d-d7de88b44f49",
+      "documentName": "Business Plan",
+      "sectionTitle": "Financial Plan",
+      "category": "financials",
+      "tags": [
+        "revenue",
+        "projections",
+        "break-even"
+      ],
+      "content": "Y1: Revenue $500K, Net $100K. Y2: Revenue $750K, Net $210K. Y3: Revenue $1M, Net $300K. Revenue split: BHRT 50%, Massage 20%, Autoimmunity 20%, Mindset Coaching 10%. Break-even: ~$28,571/month by Month 3.",
+      "tokenEstimate": 120,
+      "createdAt": "2026-03-25 20:33:23.229552+00"
+    },
+    {
+      "id": "bcea4225-ec18-4152-9b30-3dd4f6a0a92e",
+      "documentName": "Business Plan",
+      "sectionTitle": "Risk Analysis & SWOT",
+      "category": "strategy",
+      "tags": [
+        "risks",
+        "SWOT",
+        "mitigation"
+      ],
+      "content": "Risks: Market (emerging competitors), Operational (limited capacity), Financial (economic downturn), Regulatory, Reputational. SWOT Strengths: Strong team, diverse offerings. Weaknesses: Checkout inefficiencies, program presentation. Opportunities: Patient education demand. Threats: Social media misinformation.",
+      "tokenEstimate": 130,
+      "createdAt": "2026-03-25 20:33:23.229552+00"
+    },
+    {
+      "id": "b865abb9-4635-41e0-9628-2c11e7f51b28",
+      "documentName": "Business Plan",
+      "sectionTitle": "Business Viability Score",
+      "category": "overview",
+      "tags": [
+        "viability",
+        "scoring"
+      ],
+      "content": "Demand: 9/10, Competitive Position: 7/10, Profitability: 8/10, Execution: 9/10, Differentiation: 8/10. Overall Score: 82%.",
+      "tokenEstimate": 70,
+      "createdAt": "2026-03-25 20:33:23.229552+00"
+    }
+  ]
+}

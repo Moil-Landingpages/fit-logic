@@ -310,6 +310,28 @@ const Index = () => {
 
         {/* ── Pipeline Kanban ── */}
         <TabsContent value="pipeline" className="mt-4">
+          {/* Recently added contacts strip */}
+          {contacts.length > 0 && (
+            <div className="mb-4 flex items-center gap-2 overflow-x-auto pb-1">
+              <span className="text-xs font-medium text-muted-foreground shrink-0">Recently added:</span>
+              {contacts.slice(0, 6).map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => router.push(`/contacts?id=${c.id}`)}
+                  className="flex items-center gap-1.5 shrink-0 rounded-full border border-border bg-background px-3 py-1 text-xs hover:bg-muted/60 transition-colors"
+                >
+                  <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-[10px] font-semibold flex items-center justify-center shrink-0">
+                    {c.first_name?.[0]?.toUpperCase() ?? "?"}
+                  </span>
+                  <span className="font-medium">{c.first_name} {c.last_name}</span>
+                  <Badge variant="outline" className="text-[9px] py-0 px-1.5">{c.status}</Badge>
+                </button>
+              ))}
+              <Button variant="ghost" size="sm" className="text-xs shrink-0 h-7" onClick={() => router.push("/contacts")}>
+                View all <ArrowRight className="h-3 w-3 ml-1" />
+              </Button>
+            </div>
+          )}
           {contactsLoading ? (
             <div className="grid grid-cols-7 gap-3">
               {PIPELINE_STAGES.map((s) => (

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { buildFitlogicKnowledgeContext } from "@/lib/fitlogic-knowledge";
 import { serverClient } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
@@ -16,30 +17,40 @@ export async function POST(req: NextRequest) {
       .select("question, answer, category")
       .eq("active", true);
 
-    const existingContext = (existingFaqs || [])
+    const toneReferenceFaqs = ((existingFaqs || []).filter((faq: { category: string }) => !category || faq.category === category).slice(0, 5));
+    const faqExamples = toneReferenceFaqs.length > 0 ? toneReferenceFaqs : (existingFaqs || []).slice(0, 5);
+    const existingContext = faqExamples
       .map((f: { question: string; answer: string }) => `Q: ${f.question}\nA: ${f.answer}`)
       .join("\n\n");
+    const knowledgeContext = buildFitlogicKnowledgeContext(
+      [category, question].filter(Boolean).join("\n"),
+      {
+        intent: "faq",
+        category,
+        heading: "Fit Logic reference knowledge",
+      },
+    );
 
-    const prompt = `You are an expert FAQ writer for FitLogic, a functional medicine and wellness practice.
+    const prompt = `You are writing a public-facing FAQ answer for Fit Logic.
 
-Business context:
-- Located in Austin, TX (also serves clients virtually nationwide)
-- Programs range from $1,500-$4,500
-- Out-of-network provider, accepts HSA/FSA
-- Comprehensive lab work included in all programs
-- Focus on root-cause medicine
+Use the Fit Logic knowledge below as your factual grounding. Existing FAQs are there for tone and structure.
+If a detail is not present in the knowledge context, existing FAQs, or the question itself, do not invent it. Instead, answer helpfully at a high level and invite the reader to contact Fit Logic for specifics.
+Do not make diagnostic claims, guarantee outcomes, or state unsupported pricing, insurance, scheduling, or location details.
+
+${knowledgeContext}
 
 Existing FAQs for tone/style reference:
 ${existingContext}
 
 Write a clear, helpful, and professional answer for this FAQ question. The answer should:
-1. Be conversational but authoritative
-2. Include specific details (numbers, timelines, steps) when relevant
-3. End with a soft call-to-action when appropriate
-4. Be 2-4 paragraphs max
-5. Match the tone of existing FAQs
+1. Be warm, conversational, and authoritative
+2. Use specific Fit Logic details only when they are supported by the context above
+3. Include concrete steps, timelines, or examples when relevant and supported
+4. Be 2-4 short paragraphs max
+5. End with a soft next step when appropriate
+6. Match the tone of the existing FAQs without copying them
 
-Category: ${category}
+Category: ${category ?? "General_Info"}
 Question: ${question}
 
 Respond with ONLY the answer text, no preamble.`;
@@ -47,7 +58,7 @@ Respond with ONLY the answer text, no preamble.`;
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({
       model: "gemini-3-flash-preview",
-      systemInstruction: "You write clear, helpful FAQ answers for a functional medicine practice. Be specific, warm, and professional.",
+      systemInstruction: "You write grounded, helpful FAQ answers for Fit Logic. Be warm and professional, and stay consistent with the provided business context.",
     });
 
     const result = await model.generateContent(prompt);

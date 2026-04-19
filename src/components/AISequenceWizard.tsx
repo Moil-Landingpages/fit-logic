@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkles, Loader2, Check, ArrowRight, ArrowLeft, Mail, Layers, Users, Clock, Eye, Lightbulb, Pencil, X, ShieldCheck } from "lucide-react";
+import { Sparkles, Loader2, Check, ArrowRight, ArrowLeft, Mail, Layers, Users, Clock, Eye, Lightbulb, Pencil, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -248,6 +248,97 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
 
           {step === "review" && result && (
             <div className="space-y-4 py-2">
+
+              {/* ── Sequence Relation Map ── */}
+              <div className="rounded-xl border bg-muted/20 p-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-4 flex items-center gap-1.5">
+                  <Layers className="h-3.5 w-3.5" /> Sequence Flow
+                </p>
+                <div className="overflow-x-auto pb-2">
+                  <div className="flex items-stretch gap-0 min-w-max">
+                    {/* Start node */}
+                    <div className="flex flex-col items-center justify-center">
+                      <div className="rounded-full bg-primary/10 border-2 border-primary/30 w-9 h-9 flex items-center justify-center shrink-0">
+                        <Mail className="h-4 w-4 text-primary" />
+                      </div>
+                      <span className="text-[9px] text-muted-foreground mt-1 font-medium">START</span>
+                    </div>
+
+                    {result.emails.map((email, idx) => (
+                      <div key={idx} className="flex items-stretch">
+                        {/* Arrow + delay label */}
+                        <div className="flex flex-col items-center justify-center w-14 shrink-0">
+                          <div className="flex items-center w-full">
+                            <div className="flex-1 h-px bg-border" />
+                            <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                          </div>
+                          <span className="text-[9px] text-primary font-semibold mt-0.5">
+                            {idx === 0 ? "Day 0" : `+${email.delayDays}d`}
+                          </span>
+                        </div>
+
+                        {/* Email node */}
+                        <div className="flex flex-col items-center">
+                          <div className={`rounded-xl border-2 ${
+                            idx === 0
+                              ? "border-primary/40 bg-primary/5"
+                              : idx === result.emails.length - 1
+                              ? "border-violet-300 bg-violet-50"
+                              : "border-border bg-background"
+                          } px-3 py-2 w-36 shadow-sm`}>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <div className={`rounded-full w-4 h-4 flex items-center justify-center text-[9px] font-bold shrink-0 ${
+                                idx === 0 ? "bg-primary text-white" :
+                                idx === result.emails.length - 1 ? "bg-violet-500 text-white" :
+                                "bg-muted-foreground/20 text-muted-foreground"
+                              }`}>{email.step}</div>
+                              <span className="text-[9px] text-muted-foreground uppercase tracking-wide font-medium">
+                                {idx === 0 ? "Intro" : idx === result.emails.length - 1 ? "Close" : `Follow-up`}
+                              </span>
+                            </div>
+                            <p className="text-[10px] font-semibold text-foreground leading-tight line-clamp-2">
+                              {email.subject}
+                            </p>
+                            {email.tip && (
+                              <p className="text-[9px] text-muted-foreground mt-1 leading-tight line-clamp-1 italic">{email.tip}</p>
+                            )}
+                          </div>
+                          <span className="text-[9px] text-muted-foreground mt-1">
+                            {idx === 0 ? "Immediately" : `After ${email.delayDays} day${email.delayDays !== 1 ? "s" : ""}`}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Arrow to end */}
+                    <div className="flex flex-col items-center justify-center w-14 shrink-0">
+                      <div className="flex items-center w-full">
+                        <div className="flex-1 h-px bg-border" />
+                        <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                      </div>
+                    </div>
+
+                    {/* End node */}
+                    <div className="flex flex-col items-center justify-center">
+                      <div className="rounded-full bg-emerald-500/10 border-2 border-emerald-300 w-9 h-9 flex items-center justify-center shrink-0">
+                        <Check className="h-4 w-4 text-emerald-600" />
+                      </div>
+                      <span className="text-[9px] text-muted-foreground mt-1 font-medium">DONE</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Total duration summary */}
+                <div className="mt-3 pt-3 border-t flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">
+                    {result.emails.length} email{result.emails.length !== 1 ? "s" : ""} in sequence
+                  </span>
+                  <span className="text-xs font-semibold text-foreground">
+                    Total span: {result.emails.reduce((acc, e) => acc + e.delayDays, 0)} days
+                  </span>
+                </div>
+              </div>
+
               {/* Campaign info - editable name */}
               <Card className="bg-primary/5 border-primary/20">
                 <CardContent className="p-4 space-y-2">
