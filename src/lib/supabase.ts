@@ -1,12 +1,19 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 
-// Read from either NEXT_PUBLIC_* (Next.js convention) or VITE_* (Lovable Cloud auto-managed .env)
+// Read from any of the common env var names. Lovable Cloud auto-managed .env uses VITE_*,
+// Next.js convention is NEXT_PUBLIC_*, and Supabase Edge / serverless secrets often expose
+// the bare SUPABASE_URL.
 const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? "";
+  process.env.NEXT_PUBLIC_SUPABASE_URL ??
+  process.env.VITE_SUPABASE_URL ??
+  process.env.SUPABASE_URL ??
+  "";
 const PUBLISHABLE_KEY =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
   process.env.VITE_SUPABASE_PUBLISHABLE_KEY ??
+  process.env.SUPABASE_PUBLISHABLE_KEY ??
+  process.env.SUPABASE_ANON_KEY ??
   "";
 
 /**
