@@ -89,20 +89,47 @@ async function processCampaigns(supabase: SupabaseClient) {
 
   const results: unknown[] = [];
 
-  for (const campaign of campaigns) {
-    // Skip if already sent today (prevent hourly re-sends)
-    const lastSentAt = campaign.last_sent_at ? new Date(campaign.last_sent_at) : null;
-    if (lastSentAt && lastSentAt.toDateString() === now.toDateString()) {
-      results.push({ campaign: campaign.name, skipped: "already sent today" });
-      continue;
-    }
+  const localDateStr = localNow.toLocaleDateString("en-CA"); // YYYY-MM-DD in practice timezone
 
+  for (const campaign of campaigns) {
     const bhStart = campaign.business_hours_start ?? settings?.business_hours_start ?? 8;
     const bhEnd = campaign.business_hours_end ?? settings?.business_hours_end ?? 18;
     const bizDays: string[] = campaign.business_days ?? settings?.business_days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"];
 
     if (!bizDays.includes(currentDay)) { results.push({ campaign: campaign.name, skipped: "not a business day" }); continue; }
     if (currentHour < bhStart || currentHour >= bhEnd) { results.push({ campaign: campaign.name, skipped: "outside business hours" }); continue; }
+
+    // Determine the scheduled hour in the practice timezone
+    // Emails must only fire during the exact hour of scheduled_at — not any later cron tick
+    if (campaign.scheduled_at) {
+      const scheduledLocalStr = new Date(campaign.scheduled_at).toLocaleString("en-US", { timeZone: practiceTimezone });
+      const scheduledLocal = new Date(scheduledLocalStr);
+      const scheduledHour = scheduledLocal.getHours();
+
+      if (currentHour !== scheduledHour) {
+        results.push({ campaign: campaign.name, skipped: `wrong hour — scheduled for ${scheduledHour}:xx, current hour is ${currentHour}` });
+        continue;
+      }
+    }
+
+    // Skip campaigns already sent this calendar day (practice timezone) — prevents duplicate sends
+    // For sequences, individual recipient delay_days logic handles per-step gating instead
+    if (campaign.campaign_type !== "sequence" && campaign.last_sent_at) {
+      const lastSentLocalStr = new Date(campaign.last_sent_at).toLocaleDateString("en-CA", { timeZone: practiceTimezone });
+      if (lastSentLocalStr === localDateStr) {
+        results.push({ campaign: campaign.name, skipped: "already sent today" });
+        continue;
+      }
+    }
+
+    // For sequences: skip if the last send for this campaign was already today (any recipient)
+    if (campaign.campaign_type === "sequence" && campaign.last_sent_at) {
+      const lastSentLocalStr = new Date(campaign.last_sent_at).toLocaleDateString("en-CA", { timeZone: practiceTimezone });
+      if (lastSentLocalStr === localDateStr) {
+        results.push({ campaign: campaign.name, skipped: "sequence already processed today" });
+        continue;
+      }
+    }
 
     const maxSends = campaign.max_sends_per_day ?? settings?.max_sends_per_day ?? 500;
     const todayStart = new Date(now);
