@@ -8,7 +8,7 @@ import { toast } from "@/hooks/use-toast";
 import {
   Users, Plus, Search, MoreHorizontal, Mail, Building2,
   Eye, Pencil, Trash2, ChevronLeft, ArrowUpDown, Tag, StickyNote,
-  TrendingUp, Send, X, Filter, Upload,
+  TrendingUp, Send, X, Filter, Upload, Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,6 +58,36 @@ type Patient = {
   created_at: string;
   updated_at: string;
 };
+
+function exportToCSV(rows: Patient[], filename = "contacts.csv") {
+  const headers = [
+    "First Name", "Last Name", "Email", "Phone", "Status", "Pipeline Stage",
+    "Lead Source", "Company", "Deal Value", "City", "State", "Tags", "Notes", "Created At",
+  ];
+  const escape = (v: unknown) => {
+    const s = v == null ? "" : String(v);
+    return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [
+    headers.join(","),
+    ...rows.map((p) =>
+      [
+        p.first_name, p.last_name, p.email, p.phone,
+        p.status, p.pipeline_stage, p.lead_source, p.company,
+        p.deal_value, p.city, p.state,
+        (p.tags ?? []).join(";"), p.notes,
+        new Date(p.created_at).toLocaleDateString(),
+      ].map(escape).join(",")
+    ),
+  ];
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 const STATUS_MAP: Record<string, { label: string; color: string; dot: string }> = {
   lead:     { label: "Lead",   color: "bg-blue-50 text-blue-700 border-blue-200",     dot: "bg-blue-500" },
@@ -666,6 +696,14 @@ export default function Patients() {
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setImportOpen(true)} className="gap-1.5 shadow-card">
             <Upload className="h-4 w-4" /><span className="hidden sm:inline">Import CSV</span>
+          </Button>
+          <Button
+            variant="outline" size="sm"
+            onClick={() => exportToCSV(filtered, `contacts-${new Date().toISOString().slice(0,10)}.csv`)}
+            className="gap-1.5 shadow-card"
+            title={`Export ${filtered.length} contact${filtered.length !== 1 ? "s" : ""} to CSV`}
+          >
+            <Download className="h-4 w-4" /><span className="hidden sm:inline">Export CSV</span>
           </Button>
           <Button size="sm" onClick={() => { setEditing(null); setFormOpen(true); }} className="gap-1.5 shadow-card">
             <Plus className="h-4 w-4" /> Add Contact
