@@ -325,7 +325,7 @@ export default function Analytics() {
   const maxFunnelCount = Math.max(...pipelineFunnel.map((row) => row.count), 0);
 
   return (
-    <div className="max-w-7xl space-y-6">
+    <div className="space-y-6">
       <div>
         <h1 className="font-heading text-2xl font-bold">Analytics</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
@@ -348,7 +348,7 @@ export default function Analytics() {
             <KpiCard title="Pipeline Value" value={fmtCurrency(pipelineKpis.pipelineValue)} icon={DollarSign} />
           </div>
 
-          <div className="grid gap-5 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Pipeline Funnel</CardTitle>
@@ -411,7 +411,7 @@ export default function Analytics() {
             <KpiCard title="Bounce Rate" value={emailKpis.bounceRate} sub={`${fmt(emailKpis.bounced)} bounced`} icon={AlertTriangle} />
           </div>
 
-          <div className="grid gap-5 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Sends per Day</CardTitle>

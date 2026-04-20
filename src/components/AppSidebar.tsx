@@ -36,11 +36,15 @@ const secondaryItems = [
 ];
 
 export function AppSidebar() {
-  const { state } = useSidebar();
+  const { state, setOpenMobile, isMobile } = useSidebar();
   const collapsed = state === "collapsed";
   const pathname = usePathname();
 
   const isActive = (path: string) => pathname === path;
+
+  const handleNavClick = () => {
+    if (isMobile) setOpenMobile(false);
+  };
 
   return (
     <Sidebar collapsible="icon">
@@ -64,7 +68,7 @@ export function AppSidebar() {
               {mainItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                    <NavLink to={item.url} end activeClassName="bg-sidebar-accent text-sidebar-primary">
+                    <NavLink to={item.url} end activeClassName="bg-sidebar-accent text-sidebar-primary" onClick={handleNavClick}>
                       <item.icon className="h-4 w-4" />
                       {!collapsed && <span>{item.title}</span>}
                     </NavLink>
@@ -73,7 +77,7 @@ export function AppSidebar() {
               ))}
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
-                  <a href="https://moilapp.com/marketing" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+                  <a href="https://moilapp.com/marketing" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2" onClick={handleNavClick}>
                     <ExternalLink className="h-4 w-4" />
                     {!collapsed && <span>Marketing</span>}
                   </a>
@@ -81,7 +85,7 @@ export function AppSidebar() {
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={isActive("/retreat")}>
-                  <Link href="/retreat" className="flex items-center gap-2">
+                  <Link href="/retreat" className="flex items-center gap-2" onClick={handleNavClick}>
                     <Tent className="h-4 w-4" />
                     {!collapsed && <span>The Retreat</span>}
                   </Link>
@@ -98,7 +102,7 @@ export function AppSidebar() {
               {secondaryItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                    <NavLink to={item.url} activeClassName="bg-sidebar-accent text-sidebar-primary">
+                    <NavLink to={item.url} activeClassName="bg-sidebar-accent text-sidebar-primary" onClick={handleNavClick}>
                       <item.icon className="h-4 w-4" />
                       {!collapsed && <span>{item.title}</span>}
                     </NavLink>

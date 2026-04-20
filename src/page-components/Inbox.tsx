@@ -118,25 +118,55 @@ const Inbox = () => {
         ))}
       </div>
 
-      {/* Split panel */}
-      <div className="grid lg:grid-cols-5 gap-0 border rounded-xl overflow-hidden bg-card shadow-card min-h-[500px]">
-        <div className="lg:col-span-2 border-r overflow-y-auto max-h-[600px]">
-          <InquiryList
-            inquiries={inquiries}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-          />
-        </div>
-        <div className="lg:col-span-3 overflow-y-auto max-h-[600px]">
-          {selected ? (
-            <InquiryDetail inquiry={selected} onUpdate={handleUpdate} />
+      {/* Split panel — side-by-side on lg+, stacked on mobile */}
+      <div className="border rounded-xl overflow-hidden bg-card shadow-card">
+        {/* Mobile: show list OR detail */}
+        <div className="lg:hidden">
+          {selectedId && selected ? (
+            <div>
+              <div className="border-b px-3 py-2">
+                <button
+                  className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+                  onClick={() => setSelectedId(null)}
+                >
+                  ← Back to inbox
+                </button>
+              </div>
+              <div className="overflow-y-auto max-h-[70vh]">
+                <InquiryDetail inquiry={selected} onUpdate={handleUpdate} />
+              </div>
+            </div>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-20">
-              <InboxIcon className="h-10 w-10 mb-3 opacity-30" />
-              <p className="text-sm font-medium">Select an inquiry to view details</p>
-              <p className="text-xs mt-1">AI automatically answers FAQ-matched inquiries</p>
+            <div className="overflow-y-auto max-h-[70vh]">
+              <InquiryList
+                inquiries={inquiries}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+              />
             </div>
           )}
+        </div>
+
+        {/* Desktop: side-by-side */}
+        <div className="hidden lg:grid lg:grid-cols-5 min-h-[500px]">
+          <div className="lg:col-span-2 border-r overflow-y-auto max-h-[600px]">
+            <InquiryList
+              inquiries={inquiries}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
+          </div>
+          <div className="lg:col-span-3 overflow-y-auto max-h-[600px]">
+            {selected ? (
+              <InquiryDetail inquiry={selected} onUpdate={handleUpdate} />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-20">
+                <InboxIcon className="h-10 w-10 mb-3 opacity-30" />
+                <p className="text-sm font-medium">Select an inquiry to view details</p>
+                <p className="text-xs mt-1">AI automatically answers FAQ-matched inquiries</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

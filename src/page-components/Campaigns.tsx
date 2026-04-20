@@ -382,26 +382,26 @@ const Campaigns_Page = () => {
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" size="sm" onClick={() => { setEditingTemplate({ name: "", subject: "", preview_text: "", body_html: "", category: "welcome" }); setShowTemplateEditor(true); }}>
-            <FileText className="h-3.5 w-3.5 mr-1" />New Template
+            <FileText className="h-3.5 w-3.5 mr-1" /><span className="hidden sm:inline">New Template</span><span className="sm:hidden">Template</span>
           </Button>
           <Button variant="outline" size="sm" onClick={() => setShowAICreator(true)}>
-            <Sparkles className="h-3.5 w-3.5 mr-1" />AI Single Email
+            <Sparkles className="h-3.5 w-3.5 mr-1" /><span className="hidden sm:inline">AI Single Email</span><span className="sm:hidden">AI Email</span>
           </Button>
           <Button variant="outline" size="sm" onClick={() => setShowAIWizard(true)} className="border-primary/30 text-primary hover:bg-primary/5">
-            <Sparkles className="h-3.5 w-3.5 mr-1" />AI Sequence Wizard
+            <Sparkles className="h-3.5 w-3.5 mr-1" /><span className="hidden sm:inline">AI Sequence Wizard</span><span className="sm:hidden">AI Sequence</span>
           </Button>
           <Button variant="outline" size="sm" onClick={() => {
             setEditingCampaign({ name: "", status: "draft", campaign_type: "single", template_id: "", segment_id: "" });
             setSequenceSteps([]); setRecipients([]); setShowBuilder(true);
           }}>
-            <Plus className="h-3.5 w-3.5 mr-1" />New Campaign
+            <Plus className="h-3.5 w-3.5 mr-1" />Campaign
           </Button>
           <Button variant="outline" size="sm" onClick={() => {
             setEditingCampaign({ name: "", status: "draft", campaign_type: "sequence", segment_id: "" });
             setSequenceSteps([{ id: `step-1`, step_number: 1, subject: "", body_html: "", delay_days: 0 }]);
             setRecipients([]); setShowBuilder(true);
           }}>
-            <Layers className="h-3.5 w-3.5 mr-1" />New Sequence
+            <Layers className="h-3.5 w-3.5 mr-1" />Sequence
           </Button>
         </div>
       </div>
@@ -447,7 +447,7 @@ const Campaigns_Page = () => {
             <TabsTrigger value="templates">Templates</TabsTrigger>
             <TabsTrigger value="segments">Segments</TabsTrigger>
           </TabsList>
-          <div className="relative flex-1 max-w-xs">
+          <div className="relative w-full sm:flex-1 sm:max-w-xs">
             <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
             <Input placeholder="Search..." className="pl-8 h-9 text-sm" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
@@ -462,25 +462,25 @@ const Campaigns_Page = () => {
             const cfg = CAMPAIGN_STATUS_CONFIG[campaign.status as CampaignStatus] || CAMPAIGN_STATUS_CONFIG.draft;
             return (
               <Card key={campaign.id} className="hover:shadow-elevated transition-shadow cursor-pointer" onClick={() => setSelectedCampaign(campaign)}>
-                <CardContent className="flex items-center gap-4 p-4">
-                  <div className={`rounded-lg p-2.5 ${cfg.bgColor}`}><Mail className={`h-4 w-4 ${cfg.color}`} /></div>
+                <CardContent className="flex items-start sm:items-center gap-3 sm:gap-4 p-3 sm:p-4">
+                  <div className={`rounded-lg p-2.5 shrink-0 ${cfg.bgColor}`}><Mail className={`h-4 w-4 ${cfg.color}`} /></div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
+                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                       <h3 className="font-heading font-semibold text-foreground truncate">{campaign.name}</h3>
                       <Badge className={`${cfg.bgColor} ${cfg.color} border-0 text-[10px]`}>{cfg.label}</Badge>
-                      {campaign.campaign_type === "sequence" && <Badge variant="outline" className="text-[10px]"><Layers className="h-2.5 w-2.5 mr-0.5" />Sequence</Badge>}
+                      {campaign.campaign_type === "sequence" && <Badge variant="outline" className="text-[10px]"><Layers className="h-2.5 w-2.5 mr-0.5" />Seq</Badge>}
                       {campaign.auto_schedule && <Badge variant="outline" className="text-[10px] text-primary"><Clock className="h-2.5 w-2.5 mr-0.5" />Auto</Badge>}
                     </div>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-muted-foreground truncate">
                       {campaign.campaign_type === "sequence" ? "Multi-email" : tpl?.name || "No template"} → {seg?.name || "No segment"}
-                      {(campaign.recipient_count ?? 0) > 0 && ` • ${campaign.recipient_count} recipients`}
+                      {(campaign.recipient_count ?? 0) > 0 && ` • ${campaign.recipient_count}`}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {(campaign.stats as any)?.sent && <div className="text-right shrink-0"><p className="text-sm font-bold font-heading">{(campaign.stats as any).sent}</p><p className="text-[10px] text-muted-foreground">sent</p></div>}
-                    <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                    {(campaign.stats as any)?.sent && <div className="text-right hidden sm:block"><p className="text-sm font-bold font-heading">{(campaign.stats as any).sent}</p><p className="text-[10px] text-muted-foreground">sent</p></div>}
+                    <div className="flex gap-0.5" onClick={e => e.stopPropagation()}>
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditCampaign(campaign)}><Pencil className="h-3 w-3" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDuplicate(campaign)}><Copy className="h-3 w-3" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 hidden sm:inline-flex" onClick={() => handleDuplicate(campaign)}><Copy className="h-3 w-3" /></Button>
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeletingCampaignId(campaign.id)}><Trash2 className="h-3 w-3" /></Button>
                     </div>
                   </div>

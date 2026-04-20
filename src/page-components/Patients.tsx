@@ -656,7 +656,7 @@ export default function Patients() {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="font-heading text-2xl font-bold text-foreground">Contacts</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
@@ -664,10 +664,10 @@ export default function Patients() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setImportOpen(true)} className="gap-1.5 shadow-card">
-            <Upload className="h-4 w-4" /> Import CSV
+          <Button variant="outline" size="sm" onClick={() => setImportOpen(true)} className="gap-1.5 shadow-card">
+            <Upload className="h-4 w-4" /><span className="hidden sm:inline">Import CSV</span>
           </Button>
-          <Button onClick={() => { setEditing(null); setFormOpen(true); }} className="gap-1.5 shadow-card">
+          <Button size="sm" onClick={() => { setEditing(null); setFormOpen(true); }} className="gap-1.5 shadow-card">
             <Plus className="h-4 w-4" /> Add Contact
           </Button>
         </div>
@@ -675,9 +675,9 @@ export default function Patients() {
 
       {/* Filters bar */}
       <div className="space-y-2">
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Status tabs */}
-          <div className="flex items-center bg-card border rounded-lg p-0.5 shadow-card">
+          <div className="flex items-center bg-card border rounded-lg p-0.5 shadow-card overflow-x-auto max-w-full">
             {[
               { key: "all", label: "All" },
               { key: "lead", label: "Leads" },
@@ -702,7 +702,7 @@ export default function Patients() {
           </div>
 
           {/* Search */}
-          <div className="relative flex-1 max-w-xs">
+          <div className="relative flex-1 min-w-[160px] max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search by name, email, company..."
@@ -814,9 +814,9 @@ export default function Patients() {
         </div>
       )}
 
-      {/* Table */}
+      {/* Table — horizontally scrollable on mobile */}
       <Card className="shadow-card overflow-hidden">
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           {isLoading ? (
             <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">Loading contacts…</div>
           ) : filtered.length === 0 ? (
@@ -845,11 +845,11 @@ export default function Patients() {
                     />
                   </TableHead>
                   <TableHead className="font-medium">Contact</TableHead>
-                  <TableHead className="font-medium">Email</TableHead>
-                  <TableHead className="font-medium">Source</TableHead>
-                  <TableHead className="font-medium">Stage</TableHead>
+                  <TableHead className="font-medium hidden sm:table-cell">Email</TableHead>
+                  <TableHead className="font-medium hidden md:table-cell">Source</TableHead>
+                  <TableHead className="font-medium hidden md:table-cell">Stage</TableHead>
                   <TableHead className="font-medium">Status</TableHead>
-                  <TableHead className="font-medium">Tags</TableHead>
+                  <TableHead className="font-medium hidden lg:table-cell">Tags</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
@@ -881,16 +881,16 @@ export default function Patients() {
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="text-sm">
+                    <TableCell className="text-sm hidden sm:table-cell">
                       <div className="text-muted-foreground">{p.email || "—"}</div>
                       {p.phone && <div className="text-[11px] text-muted-foreground/70">{p.phone}</div>}
                     </TableCell>
-                    <TableCell><LeadSourceBadge source={p.lead_source} /></TableCell>
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell"><LeadSourceBadge source={p.lead_source} /></TableCell>
+                    <TableCell className="hidden md:table-cell">
                       <Badge variant="outline">{PIPELINE_STAGE_LABELS[p.pipeline_stage] ?? p.pipeline_stage}</Badge>
                     </TableCell>
                     <TableCell><StatusPill status={p.status} /></TableCell>
-                    <TableCell>
+                    <TableCell className="hidden lg:table-cell">
                       <div className="flex flex-wrap gap-1">
                         {(p.tags || []).slice(0, 2).map((tag) => (
                           <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0">{tag}</Badge>

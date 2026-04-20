@@ -756,20 +756,22 @@ const Settings = () => {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4 max-w-xl">
-          <TabsTrigger value="practice">
-            <Building2 className="h-3.5 w-3.5 mr-1.5" /> Practice
-          </TabsTrigger>
-          <TabsTrigger value="staff">
-            <Users className="h-3.5 w-3.5 mr-1.5" /> Staff
-          </TabsTrigger>
-          <TabsTrigger value="integrations">
-            <Plug className="h-3.5 w-3.5 mr-1.5" /> Integrations
-          </TabsTrigger>
-          <TabsTrigger value="campaigns">
-            <Mail className="h-3.5 w-3.5 mr-1.5" /> Campaigns
-          </TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto -mx-1 px-1">
+          <TabsList className="grid grid-cols-4 w-full min-w-[340px] max-w-xl">
+            <TabsTrigger value="practice">
+              <Building2 className="h-3.5 w-3.5 mr-1.5 hidden sm:inline" /> Practice
+            </TabsTrigger>
+            <TabsTrigger value="staff">
+              <Users className="h-3.5 w-3.5 mr-1.5 hidden sm:inline" /> Staff
+            </TabsTrigger>
+            <TabsTrigger value="integrations">
+              <Plug className="h-3.5 w-3.5 mr-1.5 hidden sm:inline" /> Integrations
+            </TabsTrigger>
+            <TabsTrigger value="campaigns">
+              <Mail className="h-3.5 w-3.5 mr-1.5 hidden sm:inline" /> Campaigns
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="practice" className="mt-6">
           <PracticeTab settings={settings} onSave={updateSettings.mutate} />

@@ -7,23 +7,27 @@ import { QK } from "@/lib/queryKeys";
 import { useRouter } from "next/navigation";
 import {
   LayoutDashboard, Users, Mail, TrendingUp, ArrowRight,
-  Share2, DollarSign, Plus, GripVertical, Target, Trophy,
+  Share2, Plus, GripVertical, Target, ChevronDown, ChevronUp, Maximize2, X, Search,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 
 // Pipeline stage config — order matters for kanban columns
 const PIPELINE_STAGES = [
-  { key: "new_lead",     label: "New Lead",     color: "bg-slate-100 text-slate-700 border-slate-200",     dot: "bg-slate-400" },
-  { key: "contacted",    label: "Contacted",    color: "bg-blue-100 text-blue-700 border-blue-200",         dot: "bg-blue-400" },
-  { key: "qualified",    label: "Qualified",    color: "bg-violet-100 text-violet-700 border-violet-200",   dot: "bg-violet-400" },
-  { key: "proposal",     label: "Proposal",     color: "bg-amber-100 text-amber-700 border-amber-200",      dot: "bg-amber-400" },
-  { key: "negotiation",  label: "Negotiation",  color: "bg-orange-100 text-orange-700 border-orange-200",   dot: "bg-orange-500" },
-  { key: "won",          label: "Won",          color: "bg-emerald-100 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
-  { key: "lost",         label: "Lost",         color: "bg-red-100 text-red-700 border-red-200",            dot: "bg-red-400" },
+  { key: "new_lead",     label: "New Lead",     color: "bg-slate-100 text-slate-700 border-slate-200",     dot: "bg-slate-400",    accent: "bg-slate-400",    accentLight: "bg-slate-400/10" },
+  { key: "contacted",    label: "Contacted",    color: "bg-blue-100 text-blue-700 border-blue-200",         dot: "bg-blue-400",     accent: "bg-blue-400",     accentLight: "bg-blue-400/10" },
+  { key: "qualified",    label: "Qualified",    color: "bg-violet-100 text-violet-700 border-violet-200",   dot: "bg-violet-400",   accent: "bg-violet-500",   accentLight: "bg-violet-500/10" },
+  { key: "proposal",     label: "Proposal",     color: "bg-amber-100 text-amber-700 border-amber-200",      dot: "bg-amber-400",    accent: "bg-amber-400",    accentLight: "bg-amber-400/10" },
+  { key: "negotiation",  label: "Negotiation",  color: "bg-orange-100 text-orange-700 border-orange-200",   dot: "bg-orange-500",   accent: "bg-orange-500",   accentLight: "bg-orange-500/10" },
+  { key: "won",          label: "Won",          color: "bg-emerald-100 text-emerald-700 border-emerald-200", dot: "bg-emerald-500",  accent: "bg-emerald-500",  accentLight: "bg-emerald-500/10" },
+  { key: "lost",         label: "Lost",         color: "bg-red-100 text-red-700 border-red-200",            dot: "bg-red-400",      accent: "bg-red-400",      accentLight: "bg-red-400/10" },
 ] as const;
 
 type PipelineStage = typeof PIPELINE_STAGES[number]["key"];
@@ -59,101 +63,291 @@ function PipelineCard({
   contact,
   onDragStart,
   onNavigate,
+  isDragging,
 }: {
   contact: ContactRow;
   onDragStart: (id: string) => void;
   onNavigate: () => void;
+  isDragging?: boolean;
 }) {
   return (
     <div
       draggable
-      onDragStart={() => onDragStart(contact.id)}
-      className="bg-card border border-border rounded-lg p-3 shadow-sm cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow group"
+      onDragStart={(e) => { e.stopPropagation(); onDragStart(contact.id); }}
+      className={`bg-card border rounded-xl p-3.5 cursor-grab active:cursor-grabbing transition-all group select-none ${
+        isDragging
+          ? "opacity-40 scale-95 border-primary shadow-lg ring-1 ring-primary/30"
+          : "border-border shadow-sm hover:shadow-md hover:border-border/80"
+      }`}
       onClick={onNavigate}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="flex-shrink-0 h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary">
-            {initials(contact.first_name, contact.last_name)}
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground truncate leading-tight">
-              {contact.first_name} {contact.last_name}
-            </p>
-            {contact.email && (
-              <p className="text-[11px] text-muted-foreground truncate">{contact.email}</p>
-            )}
-          </div>
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+          {initials(contact.first_name, contact.last_name)}
         </div>
-        <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+        <GripVertical className="h-4 w-4 text-muted-foreground/30 shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
-      <div className="flex items-center justify-between mt-2.5">
-        <Badge variant="outline" className="text-[10px]">{contact.status}</Badge>
-        <span className="text-[10px] text-muted-foreground">{relDate(contact.created_at)}</span>
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-foreground truncate leading-tight">
+          {contact.first_name} {contact.last_name}
+        </p>
+        {contact.email && (
+          <p className="text-[11px] text-muted-foreground truncate mt-0.5">{contact.email}</p>
+        )}
+      </div>
+      <div className="flex items-center justify-end mt-3">
+        <span className="text-[10px] text-muted-foreground/70">{relDate(contact.created_at)}</span>
       </div>
     </div>
   );
 }
 
+const COLLAPSED_LIMIT = 4;
+
 // ─── Kanban Column ─────────────────────────────────────────────────────────────
 function KanbanColumn({
   stage,
   contacts,
+  draggingId,
   onDragStart,
   onDrop,
   onNavigate,
+  onAddContact,
+  onExpand,
 }: {
   stage: typeof PIPELINE_STAGES[number];
   contacts: ContactRow[];
+  draggingId: string | null;
   onDragStart: (id: string) => void;
   onDrop: (stage: string) => void;
   onNavigate: (id: string) => void;
+  onAddContact: (stage: string) => void;
+  onExpand: (stage: typeof PIPELINE_STAGES[number], contacts: ContactRow[]) => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
-  const totalValue = contacts.length;
+  const [expanded, setExpanded] = useState(false);
+
+  const overflow = contacts.length > COLLAPSED_LIMIT;
+  const visible = expanded ? contacts : contacts.slice(0, COLLAPSED_LIMIT);
+  const hidden = contacts.length - COLLAPSED_LIMIT;
 
   return (
     <div
-      className={`flex flex-col rounded-xl border transition-colors min-h-[200px] ${
-        dragOver ? "border-primary bg-primary/5" : "border-border bg-muted/30"
+      className={`flex flex-col rounded-xl border transition-all ${
+        dragOver
+          ? "border-primary ring-2 ring-primary/20 bg-primary/5 shadow-lg"
+          : "border-border bg-card shadow-sm"
       }`}
+      style={{ minWidth: 240, width: 240 }}
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-      onDragLeave={() => setDragOver(false)}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false);
+      }}
       onDrop={() => { setDragOver(false); onDrop(stage.key); }}
     >
+      {/* Colour accent strip */}
+      <div className={`h-1 rounded-t-xl ${stage.accent}`} />
+
       {/* Column header */}
-      <div className="px-3 py-2.5 border-b border-border/60">
+      <div className={`px-3 pt-3 pb-2.5 ${stage.accentLight} rounded-none border-b border-border/50`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className={`h-2 w-2 rounded-full ${stage.dot}`} />
-            <span className="text-xs font-semibold text-foreground">{stage.label}</span>
-            <span className="text-[10px] text-muted-foreground bg-background rounded-full px-1.5 py-0.5 border">
+            <span className="text-xs font-bold text-foreground tracking-wide">{stage.label}</span>
+            <span className={`text-[10px] rounded-full px-2 py-0.5 font-semibold border ${
+              contacts.length >= 10
+                ? "bg-amber-500/15 text-amber-600 border-amber-400/30"
+                : "bg-muted text-muted-foreground border-border"
+            }`}>
               {contacts.length}
             </span>
           </div>
-          {totalValue > 0 && (
-            <span className="text-[10px] text-muted-foreground font-medium">{totalValue} contacts</span>
-          )}
+          <div className="flex items-center gap-0.5">
+            {contacts.length > 0 && (
+              <button
+                onClick={() => onExpand(stage, contacts)}
+                className="h-6 w-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                title={`View all ${stage.label}`}
+              >
+                <Maximize2 className="h-3 w-3" />
+              </button>
+            )}
+            <button
+              onClick={() => onAddContact(stage.key)}
+              className="h-6 w-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+              title={`Add to ${stage.label}`}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
+
+        {/* Density bar */}
+        {contacts.length > 0 && (
+          <div className="mt-2 h-1 rounded-full bg-foreground/10 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${
+                contacts.length >= 15 ? "bg-red-500" :
+                contacts.length >= 10 ? "bg-amber-500" :
+                contacts.length >= 5  ? "bg-blue-400" :
+                "bg-emerald-400"
+              }`}
+              style={{ width: `${Math.min((contacts.length / 15) * 100, 100)}%` }}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Cards */}
-      <div className="flex-1 p-2 space-y-2 overflow-y-auto max-h-[480px]">
-        {contacts.map((c) => (
+      {/* Cards area */}
+      <div className="flex-1 p-2.5 space-y-2 overflow-y-auto" style={{ maxHeight: 520 }}>
+        {visible.map((c) => (
           <PipelineCard
             key={c.id}
             contact={c}
+            isDragging={draggingId === c.id}
             onDragStart={onDragStart}
             onNavigate={() => onNavigate(c.id)}
           />
         ))}
+
         {contacts.length === 0 && (
-          <div className="flex items-center justify-center h-16 text-[11px] text-muted-foreground/50 rounded-lg border border-dashed border-border/50">
-            Drop here
-          </div>
+          <button
+            onClick={() => onAddContact(stage.key)}
+            className="w-full flex flex-col items-center justify-center h-20 text-[11px] text-muted-foreground/40 rounded-lg border border-dashed border-border/50 hover:border-primary/40 hover:text-primary/60 hover:bg-primary/5 transition-colors gap-1.5 mt-1"
+          >
+            <Plus className="h-4 w-4" />
+            Add contact
+          </button>
+        )}
+
+        {/* Show more / collapse */}
+        {overflow && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="w-full flex items-center justify-center gap-1 py-2 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors border border-dashed border-border/40"
+          >
+            {expanded ? (
+              <><ChevronUp className="h-3 w-3" /> Show less</>
+            ) : (
+              <><ChevronDown className="h-3 w-3" /> {hidden} more</>
+            )}
+          </button>
         )}
       </div>
     </div>
+  );
+}
+
+// ─── Stage Detail Sheet ────────────────────────────────────────────────────────
+function StageSheet({
+  stage,
+  contacts,
+  onClose,
+  onNavigate,
+  onDragStart,
+  onDrop,
+  draggingId,
+}: {
+  stage: typeof PIPELINE_STAGES[number] | null;
+  contacts: ContactRow[];
+  onClose: () => void;
+  onNavigate: (id: string) => void;
+  onDragStart: (id: string) => void;
+  onDrop: (stageKey: string) => void;
+  draggingId: string | null;
+}) {
+  const [search, setSearch] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+
+  const filtered = contacts.filter((c) => {
+    const q = search.toLowerCase();
+    return !q || `${c.first_name} ${c.last_name}`.toLowerCase().includes(q) || (c.email ?? "").toLowerCase().includes(q);
+  });
+
+  return (
+    <Sheet open={!!stage} onOpenChange={(o) => !o && onClose()}>
+      <SheetContent side="right" className="w-full sm:w-[440px] p-0 flex flex-col">
+        <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {stage && <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${stage.dot}`} />}
+              <SheetTitle className="text-base">{stage?.label}</SheetTitle>
+              <span className="text-[11px] bg-muted text-muted-foreground rounded-full px-2 py-0.5 border font-medium">
+                {contacts.length} contact{contacts.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <button onClick={onClose} className="rounded p-1 hover:bg-muted transition-colors">
+              <X className="h-4 w-4 text-muted-foreground" />
+            </button>
+          </div>
+          <div className="relative mt-3">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              autoFocus
+              placeholder="Search contacts…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 h-8 text-sm"
+            />
+          </div>
+        </SheetHeader>
+
+        <div
+          className={`flex-1 overflow-hidden transition-colors ${
+            dragOver ? "bg-primary/5" : ""
+          }`}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false); }}
+          onDrop={() => { setDragOver(false); stage && onDrop(stage.key); }}
+        >
+          <ScrollArea className="h-full">
+            <div className="p-4 space-y-2">
+              {filtered.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                  <Users className="h-8 w-8 mb-2 opacity-30" />
+                  <p className="text-sm font-medium">
+                    {search ? `No contacts match “${search}”` : "No contacts in this stage"}
+                  </p>
+                </div>
+              ) : (
+                filtered.map((c) => (
+                  <div
+                    key={c.id}
+                    draggable
+                    onDragStart={() => onDragStart(c.id)}
+                    className={`flex items-center gap-3 rounded-xl border px-4 py-3 bg-card cursor-grab active:cursor-grabbing hover:shadow-sm transition-all ${
+                      draggingId === c.id ? "opacity-50 scale-95 border-primary" : "border-border"
+                    }`}
+                  >
+                    <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+                      {initials(c.first_name, c.last_name)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{c.first_name} {c.last_name}</p>
+                      {c.email && <p className="text-xs text-muted-foreground truncate">{c.email}</p>}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[10px] text-muted-foreground">{relDate(c.created_at)}</span>
+                      <button
+                        onClick={() => onNavigate(c.id)}
+                        className="text-[10px] text-primary underline-offset-2 hover:underline"
+                      >
+                        View
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        </div>
+
+        {dragOver && (
+          <div className="px-5 py-2 border-t text-xs text-primary font-medium text-center bg-primary/5 shrink-0">
+            Drop here to move to {stage?.label}
+          </div>
+        )}
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -163,6 +357,8 @@ const Index = () => {
   const queryClient = useQueryClient();
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [tab, setTab] = useState<"pipeline" | "summary">("pipeline");
+  const [addContactStage, setAddContactStage] = useState<string | null>(null);
+  const [expandedStage, setExpandedStage] = useState<typeof PIPELINE_STAGES[number] | null>(null);
 
   const { data: contacts = [], isLoading: contactsLoading } = useQuery({
     queryKey: QK.patients,
@@ -219,6 +415,22 @@ const Index = () => {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to move contact"),
   });
 
+  const [pickerSearch, setPickerSearch] = useState("");
+
+  const moveToStageMutation = useMutation({
+    mutationFn: async ({ id, stage }: { id: string; stage: string }) => {
+      const { error } = await supabase.from("patients").update({ status: stage }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QK.patients });
+      setAddContactStage(null);
+      setPickerSearch("");
+      toast.success("Contact moved to stage");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to move contact"),
+  });
+
   const handleDrop = (targetStage: string) => {
     if (!draggingId || !targetStage) return;
     const contact = contacts.find((c) => c.id === draggingId);
@@ -258,7 +470,7 @@ const Index = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="font-heading text-2xl font-bold text-foreground">Sales Pipeline</h1>
           <p className="text-sm text-muted-foreground">
@@ -333,30 +545,32 @@ const Index = () => {
             </div>
           )}
           {contactsLoading ? (
-            <div className="grid grid-cols-7 gap-3">
+            <div className="flex gap-4 overflow-x-auto pb-3">
               {PIPELINE_STAGES.map((s) => (
-                <div key={s.key} className="h-64 rounded-xl bg-muted/50 animate-pulse" />
+                <div key={s.key} className="rounded-xl bg-muted/50 animate-pulse shrink-0" style={{ width: 240, height: 280 }} />
               ))}
             </div>
           ) : (
-            <div
-              className="grid gap-3"
-              style={{ gridTemplateColumns: `repeat(${PIPELINE_STAGES.length}, minmax(160px, 1fr))` }}
-            >
-              {PIPELINE_STAGES.map((stage) => (
-                <KanbanColumn
-                  key={stage.key}
-                  stage={stage}
-                  contacts={byStage[stage.key] ?? []}
-                  onDragStart={(id) => setDraggingId(id)}
-                  onDrop={handleDrop}
-                  onNavigate={(id) => router.push(`/contacts?id=${id}`)}
-                />
-              ))}
+            <div className="overflow-x-auto pb-3 -mx-1 px-1">
+              <div className="flex gap-3" style={{ width: `max(100%, ${PIPELINE_STAGES.length * 252}px)` }}>
+                {PIPELINE_STAGES.map((stage) => (
+                  <KanbanColumn
+                    key={stage.key}
+                    stage={stage}
+                    contacts={byStage[stage.key] ?? []}
+                    draggingId={draggingId}
+                    onDragStart={(id) => setDraggingId(id)}
+                    onDrop={handleDrop}
+                    onNavigate={(id) => router.push(`/contacts?id=${id}`)}
+                    onAddContact={(s) => setAddContactStage(s)}
+                    onExpand={(s) => setExpandedStage(s)}
+                  />
+                ))}
+              </div>
             </div>
           )}
-          <p className="text-xs text-muted-foreground mt-3 text-center">
-            Drag cards between columns to update pipeline stage
+          <p className="text-xs text-muted-foreground mt-2 text-center hidden sm:block opacity-50">
+            Drag cards between columns · Scroll to see all stages
           </p>
         </TabsContent>
 
@@ -378,7 +592,7 @@ const Index = () => {
             ))}
           </div>
 
-          <div className="grid lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Recent Contacts */}
             <Card className="lg:col-span-1">
               <CardHeader className="pb-3">
@@ -486,6 +700,77 @@ const Index = () => {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Stage Detail Sheet */}
+      <StageSheet
+        stage={expandedStage}
+        contacts={expandedStage ? (byStage[expandedStage.key as PipelineStage] ?? []) : []}
+        onClose={() => setExpandedStage(null)}
+        onNavigate={(id) => { setExpandedStage(null); router.push(`/contacts?id=${id}`); }}
+        onDragStart={(id) => setDraggingId(id)}
+        onDrop={handleDrop}
+        draggingId={draggingId}
+      />
+
+      {/* Contact Picker Dialog */}
+      <Dialog open={!!addContactStage} onOpenChange={(o) => { if (!o) { setAddContactStage(null); setPickerSearch(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Contact to Stage</DialogTitle>
+            <DialogDescription>
+              Move an existing contact into <strong>{PIPELINE_STAGES.find((s) => s.key === addContactStage)?.label}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <Input
+              autoFocus
+              placeholder="Search by name or email…"
+              value={pickerSearch}
+              onChange={(e) => setPickerSearch(e.target.value)}
+            />
+            <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
+              {contacts
+                .filter((c) => c.status !== addContactStage)
+                .filter((c) => {
+                  const q = pickerSearch.toLowerCase();
+                  return (
+                    !q ||
+                    `${c.first_name} ${c.last_name}`.toLowerCase().includes(q) ||
+                    (c.email ?? "").toLowerCase().includes(q)
+                  );
+                })
+                .map((c) => (
+                  <button
+                    key={c.id}
+                    disabled={moveToStageMutation.isPending}
+                    onClick={() => addContactStage && moveToStageMutation.mutate({ id: c.id, stage: addContactStage })}
+                    className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-muted/60 transition-colors disabled:opacity-50"
+                  >
+                    <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
+                      {initials(c.first_name, c.last_name)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{c.first_name} {c.last_name}</p>
+                      {c.email && <p className="text-xs text-muted-foreground truncate">{c.email}</p>}
+                    </div>
+                    <span className="ml-auto shrink-0 text-[10px] text-muted-foreground border rounded-full px-2 py-0.5">
+                      {PIPELINE_STAGES.find((s) => s.key === c.status)?.label ?? c.status}
+                    </span>
+                  </button>
+                ))}
+              {contacts.filter((c) => c.status !== addContactStage).length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-6">All contacts are already in this stage</p>
+              )}
+              {contacts.filter((c) => c.status !== addContactStage).filter((c) => {
+                const q = pickerSearch.toLowerCase();
+                return !q || `${c.first_name} ${c.last_name}`.toLowerCase().includes(q) || (c.email ?? "").toLowerCase().includes(q);
+              }).length === 0 && pickerSearch && (
+                <p className="text-sm text-muted-foreground text-center py-4">No contacts match "{pickerSearch}"</p>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
