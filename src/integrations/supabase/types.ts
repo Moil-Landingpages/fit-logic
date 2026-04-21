@@ -775,6 +775,7 @@ export type Database = {
           description: string | null
           estimated_count: number
           id: string
+          manual_contact_ids: string[]
           name: string
           rules: Json
         }
@@ -784,6 +785,7 @@ export type Database = {
           description?: string | null
           estimated_count?: number
           id?: string
+          manual_contact_ids?: string[]
           name: string
           rules?: Json
         }
@@ -793,6 +795,7 @@ export type Database = {
           description?: string | null
           estimated_count?: number
           id?: string
+          manual_contact_ids?: string[]
           name?: string
           rules?: Json
         }

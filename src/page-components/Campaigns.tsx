@@ -3,10 +3,13 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import { QK } from "@/lib/queryKeys";
+import type { SegmentRule } from "@/lib/campaign-data";
+import { matchesSegmentRules, resolveSegmentMembers, sanitizeSegmentRules } from "@/lib/segment-utils";
 import {
   Mail, Plus, Send, Clock, FileText, Eye, Pencil, Users, BarChart3,
-  Search, Trash2, Copy, MousePointerClick, Sparkles, Layers
+  Search, Trash2, Copy, MousePointerClick, Sparkles, Layers, X, Filter
 } from "lucide-react";
 import { EmailPreview } from "@/components/EmailPreview";
 import {
@@ -19,11 +22,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { AICampaignCreator } from "@/components/AICampaignCreator";
 import { AISequenceWizard } from "@/components/AISequenceWizard";
@@ -56,8 +61,23 @@ interface TemplateRow {
 }
 
 interface SegmentRow {
-  id: string; name: string; description: string | null; rules: any;
-  estimated_count: number; color: string | null;
+  id: string; name: string; description: string | null; rules: SegmentRule[] | null;
+  estimated_count: number; color: string | null; manual_contact_ids: string[] | null;
+}
+
+interface SegmentPatientRow extends Record<string, unknown> {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string | null;
+  company?: string | null;
+  status?: string | null;
+  pipeline_stage?: string | null;
+  lead_source?: string | null;
+  city?: string | null;
+  state?: string | null;
+  tags?: string[] | null;
+  created_at: string;
 }
 
 const Campaigns_Page = () => {
@@ -82,6 +102,64 @@ const Campaigns_Page = () => {
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const [showAICreator, setShowAICreator] = useState(false);
   const [showAIWizard, setShowAIWizard] = useState(false);
+
+  // ─── Segment builder state ───────────────────────────────────────────────
+  const [showSegmentBuilder, setShowSegmentBuilder] = useState(false);
+  const [editingSegment, setEditingSegment] = useState<Partial<SegmentRow> | null>(null);
+  const [segRules, setSegRules] = useState<SegmentRule[]>([]);
+  const [deletingSegmentId, setDeletingSegmentId] = useState<string | null>(null);
+  const [selectedSegmentContactIds, setSelectedSegmentContactIds] = useState<string[]>([]);
+  const [showSegmentContactPicker, setShowSegmentContactPicker] = useState(false);
+  const [segmentContactSearch, setSegmentContactSearch] = useState("");
+
+  const SEGMENT_FIELDS = [
+    { key: "status",        label: "Status" },
+    { key: "pipeline_stage",label: "Pipeline Stage" },
+    { key: "lead_source",   label: "Lead Source" },
+    { key: "company",       label: "Company" },
+    { key: "city",          label: "City" },
+    { key: "state",         label: "State" },
+    { key: "tags",          label: "Tags" },
+    { key: "created_at",    label: "Created Date" },
+  ];
+
+  const SEGMENT_OPERATORS = [
+    { key: "is",           label: "is" },
+    { key: "is_not",       label: "is not" },
+    { key: "contains",     label: "contains" },
+    { key: "greater_than", label: ">" },
+    { key: "less_than",    label: "<" },
+    { key: "before",       label: "before" },
+    { key: "after",        label: "after" },
+  ];
+
+  const openNewSegment = () => {
+    setEditingSegment({ name: "", description: "" });
+    setSegRules([{ field: "status", operator: "is", value: "" }]);
+    setSelectedSegmentContactIds([]);
+    setSegmentContactSearch("");
+    setShowSegmentContactPicker(false);
+    setShowSegmentBuilder(true);
+  };
+
+  const openEditSegment = (seg: SegmentRow) => {
+    setEditingSegment(seg);
+    const rules = Array.isArray(seg.rules) ? seg.rules as SegmentRule[] : [];
+    setSegRules(rules.length ? rules : [{ field: "status", operator: "is", value: "" }]);
+    setSelectedSegmentContactIds(Array.isArray(seg.manual_contact_ids) ? seg.manual_contact_ids : []);
+    setSegmentContactSearch("");
+    setShowSegmentContactPicker(false);
+    setShowSegmentBuilder(true);
+  };
+
+  const closeSegmentBuilder = () => {
+    setShowSegmentBuilder(false);
+    setEditingSegment(null);
+    setSegRules([]);
+    setSelectedSegmentContactIds([]);
+    setSegmentContactSearch("");
+    setShowSegmentContactPicker(false);
+  };
 
   const { data: campaigns = [] } = useQuery({
     queryKey: QK.campaigns,
@@ -108,6 +186,113 @@ const Campaigns_Page = () => {
       if (error) throw error;
       return data as SegmentRow[];
     },
+  });
+
+  // Load all patients for live count preview when segment builder is open
+  const { data: allPatientsForSeg = [] } = useQuery({
+    queryKey: ["all-patients-seg"],
+    enabled: showSegmentBuilder,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("patients")
+        .select("*")
+        .not("email", "is", null)
+        .order("first_name");
+      if (error) throw error;
+      return (data ?? []) as unknown as SegmentPatientRow[];
+    },
+  });
+
+  const getSegmentContactName = (patient: SegmentPatientRow) =>
+    `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim() || patient.email || "Unnamed contact";
+
+  const activeSegRules = sanitizeSegmentRules(segRules);
+  const selectedSegmentContactSet = new Set(selectedSegmentContactIds);
+  const ruleMatchedContacts = activeSegRules.length > 0
+    ? allPatientsForSeg.filter((patient) => matchesSegmentRules(patient, activeSegRules))
+    : [];
+  const manuallySelectedContacts = allPatientsForSeg.filter((patient) => selectedSegmentContactSet.has(patient.id));
+  const previewContacts = resolveSegmentMembers(allPatientsForSeg, {
+    rules: activeSegRules,
+    manualContactIds: selectedSegmentContactIds,
+  });
+  const previewCount = previewContacts.length;
+  const filteredSegmentContacts = allPatientsForSeg.filter((patient) => {
+    const query = segmentContactSearch.trim().toLowerCase();
+    if (!query) return true;
+    return [
+      getSegmentContactName(patient),
+      patient.email ?? "",
+      patient.company ?? "",
+      patient.city ?? "",
+      patient.state ?? "",
+    ].some((value) => value.toLowerCase().includes(query));
+  });
+
+  const toggleSegmentContact = (contactId: string) => {
+    setSelectedSegmentContactIds((current) =>
+      current.includes(contactId)
+        ? current.filter((id) => id !== contactId)
+        : [...current, contactId],
+    );
+  };
+
+  const selectVisibleSegmentContacts = () => {
+    setSelectedSegmentContactIds((current) =>
+      Array.from(new Set([...current, ...filteredSegmentContacts.map((patient) => patient.id)])),
+    );
+  };
+
+  const clearSelectedSegmentContacts = () => setSelectedSegmentContactIds([]);
+
+  const previewSummary =
+    activeSegRules.length === 0 && selectedSegmentContactIds.length === 0
+      ? "No rules or manual picks yet, so this segment currently includes all contacts with email."
+      : activeSegRules.length === 0
+        ? `${selectedSegmentContactIds.length} manually selected contact${selectedSegmentContactIds.length !== 1 ? "s" : ""}.`
+        : selectedSegmentContactIds.length === 0
+          ? `${ruleMatchedContacts.length} contact${ruleMatchedContacts.length !== 1 ? "s" : ""} match the current rules.`
+          : `${ruleMatchedContacts.length} matched by rules plus ${selectedSegmentContactIds.length} manually selected. Total shown is unique contacts.`;
+
+  const saveSegmentMut = useMutation({
+    mutationFn: async () => {
+      if (!editingSegment?.name?.trim()) throw new Error("Segment name is required");
+      const activeRules = sanitizeSegmentRules(segRules);
+      const payload = {
+        name: editingSegment.name.trim(),
+        description: editingSegment.description ?? "",
+        rules: activeRules as unknown as Json,
+        manual_contact_ids: selectedSegmentContactIds,
+        estimated_count: previewCount,
+      };
+      if (editingSegment.id) {
+        const { error } = await supabase.from("segments").update(payload).eq("id", editingSegment.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("segments").insert(payload);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      const isEditing = !!editingSegment?.id;
+      queryClient.invalidateQueries({ queryKey: QK.segments });
+      closeSegmentBuilder();
+      toast({ title: isEditing ? "Segment updated" : "Segment created" });
+    },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteSegmentMut = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("segments").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QK.segments });
+      setDeletingSegmentId(null);
+      toast({ title: "Segment deleted" });
+    },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const invalidateAll = (campaignId?: string) => {
@@ -525,20 +710,288 @@ const Campaigns_Page = () => {
         </TabsContent>
 
         <TabsContent value="segments" className="mt-4 space-y-3">
-          {segments.map(seg => (
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">{segments.length} segment{segments.length !== 1 ? "s" : ""}</p>
+            <Button size="sm" className="gradient-brand text-primary-foreground h-8 text-xs" onClick={openNewSegment}>
+              <Plus className="h-3.5 w-3.5 mr-1" />New Segment
+            </Button>
+          </div>
+          {segments.length === 0 ? (
+            <Card className="border-dashed">
+              <CardContent className="py-10 text-center">
+                <Filter className="h-8 w-8 mx-auto mb-3 text-muted-foreground/40" />
+                <p className="text-sm font-medium text-foreground">No segments yet</p>
+                <p className="text-xs text-muted-foreground mt-1 mb-4">Create a segment with rules, hand-picked contacts, or both.</p>
+                <Button size="sm" onClick={openNewSegment}><Plus className="h-3.5 w-3.5 mr-1" />Create Segment</Button>
+              </CardContent>
+            </Card>
+          ) : segments.map(seg => (
             <Card key={seg.id}>
               <CardContent className="flex items-center gap-4 p-4">
                 <div className="rounded-lg bg-primary/10 p-2.5"><Users className="h-4 w-4 text-primary" /></div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-heading font-semibold text-foreground">{seg.name}</h3>
-                  <p className="text-xs text-muted-foreground">{seg.description}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-heading font-semibold text-foreground">{seg.name}</h3>
+                    {(seg.manual_contact_ids?.length ?? 0) > 0 && (
+                      <Badge variant="outline" className="text-[10px]">
+                        +{seg.manual_contact_ids?.length} manual
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{seg.description || "No description"}</p>
+                  {Array.isArray(seg.rules) && seg.rules.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {(seg.rules as SegmentRule[]).map((r, i) => (
+                        <Badge key={i} variant="outline" className="text-[10px]">{r.field} {r.operator} {r.value}</Badge>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="text-right"><p className="text-sm font-bold font-heading">{seg.estimated_count}</p><p className="text-[10px] text-muted-foreground">contacts</p></div>
+                <div className="text-right shrink-0">
+                  <p className="text-sm font-bold font-heading">{seg.estimated_count}</p>
+                  <p className="text-[10px] text-muted-foreground">contacts</p>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditSegment(seg)}><Pencil className="h-3.5 w-3.5" /></Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeletingSegmentId(seg.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                </div>
               </CardContent>
             </Card>
           ))}
         </TabsContent>
       </Tabs>
+
+      {/* Segment Builder Dialog */}
+      <Dialog open={showSegmentBuilder} onOpenChange={v => { if (!v) closeSegmentBuilder(); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editingSegment?.id ? "Edit Segment" : "New Segment"}</DialogTitle>
+            <DialogDescription>Define rules, hand-pick contacts, or combine both for this segment.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <Label className="text-xs">Segment Name *</Label>
+                <Input
+                  className="mt-1 h-8 text-sm"
+                  placeholder="e.g., New Leads"
+                  value={editingSegment?.name ?? ""}
+                  onChange={e => setEditingSegment(p => ({ ...p, name: e.target.value }))}
+                />
+              </div>
+              <div className="col-span-2">
+                <Label className="text-xs">Description</Label>
+                <Input
+                  className="mt-1 h-8 text-sm"
+                  placeholder="Optional description"
+                  value={editingSegment?.description ?? ""}
+                  onChange={e => setEditingSegment(p => ({ ...p, description: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <Label className="text-xs">Manual Contact Selection</Label>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Include specific contacts in this segment in addition to the rules above.
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" className="h-8 text-xs shrink-0" onClick={() => setShowSegmentContactPicker(true)}>
+                  <Users className="h-3.5 w-3.5 mr-1" />Choose Contacts
+                </Button>
+              </div>
+              {selectedSegmentContactIds.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {manuallySelectedContacts.slice(0, 4).map((patient) => (
+                    <Badge key={patient.id} variant="outline" className="text-[10px]">
+                      {getSegmentContactName(patient)}
+                    </Badge>
+                  ))}
+                  {selectedSegmentContactIds.length > 4 && (
+                    <Badge variant="outline" className="text-[10px]">
+                      +{selectedSegmentContactIds.length - 4} more
+                    </Badge>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No contacts manually included yet.</p>
+              )}
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-xs">Filter Rules <span className="text-muted-foreground font-normal">(all must match)</span></Label>
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setSegRules(r => [...r, { field: "status", operator: "is", value: "" }])}>
+                  <Plus className="h-3 w-3 mr-1" />Add Rule
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {segRules.map((rule, i) => (
+                  <div key={i} className="flex items-center gap-1.5">
+                    <Select value={rule.field} onValueChange={v => setSegRules(r => r.map((x, j) => j === i ? { ...x, field: v } : x))}>
+                      <SelectTrigger className="h-8 text-xs w-36"><SelectValue /></SelectTrigger>
+                      <SelectContent>{SEGMENT_FIELDS.map(f => <SelectItem key={f.key} value={f.key} className="text-xs">{f.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Select value={rule.operator} onValueChange={v => setSegRules(r => r.map((x, j) => j === i ? { ...x, operator: v as SegmentRule["operator"] } : x))}>
+                      <SelectTrigger className="h-8 text-xs w-24"><SelectValue /></SelectTrigger>
+                      <SelectContent>{SEGMENT_OPERATORS.map(o => <SelectItem key={o.key} value={o.key} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Input
+                      className="h-8 text-xs flex-1"
+                      placeholder="value"
+                      value={rule.value}
+                      onChange={e => setSegRules(r => r.map((x, j) => j === i ? { ...x, value: e.target.value } : x))}
+                    />
+                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive" onClick={() => setSegRules(r => r.filter((_, j) => j !== i))}>
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+                {segRules.length === 0 && (
+                  <p className="text-xs text-muted-foreground text-center py-2">No rules added yet. Manual contact picks will still be included.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-lg border bg-primary/5 border-primary/20 px-4 py-3 flex items-center justify-between gap-4">
+              <div>
+                <span className="text-xs text-muted-foreground">Matching contacts</span>
+                <p className="text-[11px] text-muted-foreground mt-1">{previewSummary}</p>
+              </div>
+              <span className="text-lg font-bold font-heading text-foreground">{showSegmentBuilder ? previewCount : "—"}</span>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeSegmentBuilder}>Cancel</Button>
+            <Button
+              className="gradient-brand text-primary-foreground"
+              onClick={() => saveSegmentMut.mutate()}
+              disabled={!editingSegment?.name?.trim() || saveSegmentMut.isPending}
+            >
+              {saveSegmentMut.isPending ? "Saving…" : (editingSegment?.id ? "Save Changes" : "Create Segment")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Sheet open={showSegmentContactPicker} onOpenChange={setShowSegmentContactPicker}>
+        <SheetContent side="right" className="w-full sm:max-w-xl p-0 flex flex-col">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+            <SheetTitle className="text-base">Select contacts</SheetTitle>
+            <SheetDescription className="text-xs">
+              Manually include specific contacts in this segment, even if they do not match the rules.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="px-5 py-4 border-b space-y-3 shrink-0">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                className="pl-8 h-9 text-sm"
+                placeholder="Search contacts by name, email, company, or city..."
+                value={segmentContactSearch}
+                onChange={(e) => setSegmentContactSearch(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">{selectedSegmentContactIds.length}</span> manually selected
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={clearSelectedSegmentContacts}
+                  disabled={selectedSegmentContactIds.length === 0}
+                >
+                  Clear All
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={selectVisibleSegmentContacts}
+                  disabled={filteredSegmentContacts.length === 0}
+                >
+                  Select Visible
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <ScrollArea className="flex-1 px-5 py-4">
+            {filteredSegmentContacts.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-center">
+                <p className="text-sm text-muted-foreground">No contacts matched this search.</p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {filteredSegmentContacts.map((patient) => {
+                  const isSelected = selectedSegmentContactSet.has(patient.id);
+                  const isRuleMatch = activeSegRules.length > 0 && matchesSegmentRules(patient, activeSegRules);
+
+                  return (
+                    <label
+                      key={patient.id}
+                      className="flex items-start gap-3 rounded-lg border px-3 py-2 cursor-pointer hover:bg-muted/40"
+                    >
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleSegmentContact(patient.id)}
+                        className="mt-0.5"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-medium text-foreground">{getSegmentContactName(patient)}</p>
+                          {isRuleMatch && (
+                            <Badge variant="outline" className="text-[9px]">
+                              Rule match
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground truncate">{patient.email}</p>
+                        {(patient.company || patient.city || patient.state) && (
+                          <p className="text-[11px] text-muted-foreground mt-1 truncate">
+                            {[patient.company, patient.city, patient.state].filter(Boolean).join(" • ")}
+                          </p>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </ScrollArea>
+
+          <div className="border-t px-5 py-4 flex items-center justify-between gap-4 shrink-0">
+            <p className="text-xs text-muted-foreground">
+              These contacts will be included alongside rule matches when this segment is used.
+            </p>
+            <Button className="gradient-brand text-primary-foreground" onClick={() => setShowSegmentContactPicker(false)}>
+              Done
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Delete Segment Confirm */}
+      <AlertDialog open={!!deletingSegmentId} onOpenChange={v => { if (!v) setDeletingSegmentId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Segment</AlertDialogTitle>
+            <AlertDialogDescription>This will permanently delete the segment. Campaigns using it won't be affected.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground" onClick={() => deletingSegmentId && deleteSegmentMut.mutate(deletingSegmentId)}>
+              {deleteSegmentMut.isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Campaign builder dialog */}
       <Dialog open={showBuilder} onOpenChange={v => { if (!v) closeBuilder(); }}>

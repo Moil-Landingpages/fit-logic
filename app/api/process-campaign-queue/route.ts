@@ -224,6 +224,22 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
+        // Variable substitution: {first_name}, {last_name}, {name}, {email}, {company}
+        const nameParts = (recipient.name ?? "").trim().split(/\s+/);
+        const firstName = nameParts[0] || recipient.name || "";
+        const lastName = nameParts.slice(1).join(" ") || "";
+        const fullName = recipient.name || recipient.email;
+        const applyVars = (str: string) =>
+          str
+            .replace(/\{first_name\}/gi, firstName)
+            .replace(/\{last_name\}/gi, lastName)
+            .replace(/\{name\}/gi, fullName)
+            .replace(/\{email\}/gi, recipient.email)
+            .replace(/\{company\}/gi, "");  // company not on recipient row — leave blank
+
+        subject = applyVars(subject);
+        bodyHtml = applyVars(bodyHtml);
+
         const trackingId = crypto.randomUUID();
         const trackBase = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/api`;
         const trackPixel = `${trackBase}/track-email?t=${trackingId}&a=open`;

@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import type { SegmentRule } from "@/lib/campaign-data";
+import { resolveSegmentMembers } from "@/lib/segment-utils";
 
 export interface Recipient {
   email: string;
@@ -32,52 +33,9 @@ interface CampaignRecipientsProps {
 }
 
 // ─── Segment rule evaluator ───────────────────────────────────────────────────
-type PatientRow = Record<string, unknown>;
-
-function evaluateRule(patient: PatientRow, rule: SegmentRule): boolean {
-  const raw = patient[rule.field];
-  const val = String(raw ?? "").toLowerCase();
-  const ruleVal = rule.value.toLowerCase();
-
-  // Relative date helpers
-  const resolveDate = (v: string): Date | null => {
-    const m = v.match(/^(\d+)_(days|months|years?)_ago$/);
-    if (!m) return null;
-    const n = parseInt(m[1]);
-    const unit = m[2];
-    const d = new Date();
-    if (unit.startsWith("day")) d.setDate(d.getDate() - n);
-    else if (unit.startsWith("month")) d.setMonth(d.getMonth() - n);
-    else d.setFullYear(d.getFullYear() - n);
-    return d;
-  };
-
-  switch (rule.operator) {
-    case "is":       return val === ruleVal;
-    case "is_not":   return val !== ruleVal;
-    case "contains":
-      if (Array.isArray(raw)) return (raw as string[]).some(t => t.toLowerCase().includes(ruleVal));
-      return val.includes(ruleVal);
-    case "greater_than": return parseFloat(val) > parseFloat(ruleVal);
-    case "less_than":    return parseFloat(val) < parseFloat(ruleVal);
-    case "before": {
-      if (!raw) return false;
-      const d = resolveDate(ruleVal) ?? new Date(ruleVal);
-      return new Date(String(raw)) < d;
-    }
-    case "after": {
-      if (!raw) return false;
-      const d = resolveDate(ruleVal) ?? new Date(ruleVal);
-      return new Date(String(raw)) > d;
-    }
-    default: return true;
-  }
-}
-
-function matchesSegment(patient: PatientRow, rules: SegmentRule[]): boolean {
-  if (!rules?.length) return true;
-  return rules.every(r => evaluateRule(patient, r));
-}
+type PatientRow = {
+  id: string;
+} & Record<string, unknown>;
 
 export function CampaignRecipients({ recipients, onChange, campaignId }: CampaignRecipientsProps) {
   const { toast } = useToast();
@@ -106,7 +64,7 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
   const { data: segments = [] } = useQuery({
     queryKey: QK.segments,
     queryFn: async () => {
-      const { data } = await supabase.from("segments").select("id, name, description, rules, estimated_count, color").order("name");
+      const { data } = await supabase.from("segments").select("id, name, description, rules, estimated_count, color, manual_contact_ids").order("name");
       return data ?? [];
     },
   });
@@ -117,7 +75,7 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
     enabled: !!selectedSegmentId,
     queryFn: async () => {
       const { data } = await supabase.from("patients").select("*").not("email", "is", null);
-      return data ?? [];
+      return (data ?? []) as unknown as PatientRow[];
     },
   });
 
@@ -126,7 +84,8 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
     const seg = segments.find(s => s.id === selectedSegmentId);
     if (!seg) return [];
     const rules: SegmentRule[] = Array.isArray(seg.rules) ? seg.rules as unknown as SegmentRule[] : [];
-    return allPatientsForSeg.filter((p) => matchesSegment(p as PatientRow, rules));
+    const manualContactIds = Array.isArray(seg.manual_contact_ids) ? seg.manual_contact_ids as string[] : [];
+    return resolveSegmentMembers(allPatientsForSeg, { rules, manualContactIds });
   })();
 
   const addFromSegment = () => {

@@ -121,34 +121,26 @@ export async function POST() {
     const newMessages = details.filter(Boolean) as GmailMessageDetail[];
     if (!newMessages.length) return NextResponse.json({ synced: 0, message: "No new emails" });
 
-    const toInsert = newMessages
-      .map((d) => {
-        const headers = d.payload.headers;
-        const fromHeader = headers.find((h) => h.name === "From")?.value ?? "";
-        const subject = headers.find((h) => h.name === "Subject")?.value ?? "(no subject)";
-        const senderEmail = extractEmail(fromHeader);
-        const patient = patientsByEmail.get(senderEmail);
+    const toInsert = newMessages.map((d) => {
+      const headers = d.payload.headers;
+      const fromHeader = headers.find((h) => h.name === "From")?.value ?? "";
+      const subject = headers.find((h) => h.name === "Subject")?.value ?? "(no subject)";
+      const senderEmail = extractEmail(fromHeader);
+      const patient = patientsByEmail.get(senderEmail);
+      const senderName = fromHeader.replace(/<[^>]+>/, "").replace(/"/g, "").trim() || senderEmail;
 
-        return {
-          messageId: d.id,
-          senderEmail,
-          patient,
-          subject,
-          snippet: d.snippet,
-          fromHeader,
-        };
-      })
-      .filter((e) => e.patient !== undefined);
+      return { messageId: d.id, senderEmail, senderName, patient, subject, snippet: d.snippet };
+    });
 
     if (!toInsert.length) {
-      return NextResponse.json({ synced: 0, message: "No emails from known contacts" });
+      return NextResponse.json({ synced: 0, message: "No new emails" });
     }
 
     const rows = toInsert.map((e) => ({
       source: "gmail",
       source_id: e.messageId,
-      patient_id: e.patient!.id,
-      patient_name: `${e.patient!.first_name} ${e.patient!.last_name}`.trim(),
+      patient_id: e.patient?.id ?? null,
+      patient_name: e.patient ? `${e.patient.first_name} ${e.patient.last_name}`.trim() : e.senderName,
       patient_email: e.senderEmail,
       raw_content: `${e.subject}\n\n${e.snippet}`,
       status: "pending",
@@ -158,7 +150,8 @@ export async function POST() {
     const { error: insertErr } = await sb.from("inquiries").insert(rows as never[]);
     if (insertErr) throw insertErr;
 
-    return NextResponse.json({ synced: rows.length, contacts_matched: rows.length });
+    const contactsMatched = toInsert.filter((e) => e.patient).length;
+    return NextResponse.json({ synced: rows.length, contacts_matched: contactsMatched, unknown_senders: rows.length - contactsMatched });
   } catch (err) {
     console.error("sync-gmail error:", err);
     return NextResponse.json({ error: err instanceof Error ? err.message : "Unknown error" }, { status: 500 });

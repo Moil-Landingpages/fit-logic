@@ -7,7 +7,7 @@ import { QK } from "@/lib/queryKeys";
 import { useRouter } from "next/navigation";
 import {
   LayoutDashboard, Users, Mail, TrendingUp, ArrowRight,
-  Share2, Plus, GripVertical, Target, ChevronDown, ChevronUp, Maximize2, X, Search,
+  Share2, Plus, GripVertical, Target, ChevronDown, ChevronUp, Maximize2, X, Search, ArrowRightLeft,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 
 // Pipeline stage config — order matters for kanban columns
@@ -245,6 +246,7 @@ function StageSheet({
   onNavigate,
   onDragStart,
   onDrop,
+  onTransfer,
   draggingId,
 }: {
   stage: typeof PIPELINE_STAGES[number] | null;
@@ -253,6 +255,7 @@ function StageSheet({
   onNavigate: (id: string) => void;
   onDragStart: (id: string) => void;
   onDrop: (stageKey: string) => void;
+  onTransfer: (contactId: string, toStage: string) => void;
   draggingId: string | null;
 }) {
   const [search, setSearch] = useState("");
@@ -314,7 +317,7 @@ function StageSheet({
                     key={c.id}
                     draggable
                     onDragStart={() => onDragStart(c.id)}
-                    className={`flex items-center gap-3 rounded-xl border px-4 py-3 bg-card cursor-grab active:cursor-grabbing hover:shadow-sm transition-all ${
+                    className={`flex items-center gap-3 rounded-xl border px-3 py-3 bg-card cursor-grab active:cursor-grabbing hover:shadow-sm transition-all ${
                       draggingId === c.id ? "opacity-50 scale-95 border-primary" : "border-border"
                     }`}
                   >
@@ -325,11 +328,27 @@ function StageSheet({
                       <p className="text-sm font-medium text-foreground truncate">{c.first_name} {c.last_name}</p>
                       {c.email && <p className="text-xs text-muted-foreground truncate">{c.email}</p>}
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-[10px] text-muted-foreground">{relDate(c.created_at)}</span>
+                    <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <Select
+                        value=""
+                        onValueChange={(toStage) => onTransfer(c.id, toStage)}
+                      >
+                        <SelectTrigger className="h-7 w-7 p-0 border-muted flex items-center justify-center" title="Transfer to stage">
+                          <ArrowRightLeft className="h-3 w-3 text-muted-foreground" />
+                        </SelectTrigger>
+                        <SelectContent align="end">
+                          <p className="px-2 py-1 text-[10px] text-muted-foreground font-medium">Transfer to stage</p>
+                          {PIPELINE_STAGES.filter((s) => s.key !== stage?.key).map((s) => (
+                            <SelectItem key={s.key} value={s.key} className="text-xs">
+                              <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${s.dot}`} />
+                              {s.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <button
                         onClick={() => onNavigate(c.id)}
-                        className="text-[10px] text-primary underline-offset-2 hover:underline"
+                        className="text-[10px] text-primary underline-offset-2 hover:underline px-1"
                       >
                         View
                       </button>
@@ -408,7 +427,7 @@ const Index = () => {
   const stageMutation = useMutation({
     mutationFn: async ({ id, stage }: { id: string; stage: string }) => {
       const { error } = await supabase
-        .from("patients").update({ status: stage }).eq("id", id);
+        .from("patients").update({ status: stage, pipeline_stage: stage }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: QK.patients }),
@@ -419,7 +438,7 @@ const Index = () => {
 
   const moveToStageMutation = useMutation({
     mutationFn: async ({ id, stage }: { id: string; stage: string }) => {
-      const { error } = await supabase.from("patients").update({ status: stage }).eq("id", id);
+      const { error } = await supabase.from("patients").update({ status: stage, pipeline_stage: stage }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -709,6 +728,7 @@ const Index = () => {
         onNavigate={(id) => { setExpandedStage(null); router.push(`/contacts?id=${id}`); }}
         onDragStart={(id) => setDraggingId(id)}
         onDrop={handleDrop}
+        onTransfer={(id, toStage) => { stageMutation.mutate({ id, stage: toStage }); toast.success(`Moved to ${PIPELINE_STAGES.find(s => s.key === toStage)?.label ?? toStage}`); }}
         draggingId={draggingId}
       />
 

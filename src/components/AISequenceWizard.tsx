@@ -9,7 +9,6 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { EmailPreview } from "@/components/EmailPreview";
@@ -79,6 +78,9 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
       const data = await res.json();
       if (!res.ok || data?.error) throw new Error(data?.error ?? "Failed to generate");
 
+      // 3-3-5-7-14 recommended cadence: day 0, +3, +3, +5, +7, +14 for subsequent steps
+      const RECOMMENDED_DELAYS = [0, 3, 3, 5, 7, 14];
+
       if (data && !data.emails) {
         setResult({
           campaignName: data.campaignName,
@@ -92,7 +94,14 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
           }],
         });
       } else {
-        setResult(data as AIWizardResult);
+        const normalized = {
+          ...(data as AIWizardResult),
+          emails: (data as AIWizardResult).emails.map((e: GeneratedEmail, i: number) => ({
+            ...e,
+            delayDays: i === 0 ? 0 : (RECOMMENDED_DELAYS[i] ?? 14),
+          })),
+        };
+        setResult(normalized);
       }
       setStep("review");
     } catch (e) {
@@ -157,7 +166,7 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
           ))}
         </div>
 
-        <ScrollArea className="flex-1 pr-2">
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1">
           {step === "goal" && (
             <div className="space-y-4 py-2">
               <div>
@@ -283,13 +292,13 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
                             idx === 0
                               ? "border-primary/40 bg-primary/5"
                               : idx === result.emails.length - 1
-                              ? "border-violet-300 bg-violet-50"
-                              : "border-border bg-background"
+                              ? "border-violet-400/40 bg-violet-500/10"
+                              : "border-border bg-muted/30"
                           } px-3 py-2 w-36 shadow-sm`}>
                             <div className="flex items-center gap-1.5 mb-1">
                               <div className={`rounded-full w-4 h-4 flex items-center justify-center text-[9px] font-bold shrink-0 ${
-                                idx === 0 ? "bg-primary text-white" :
-                                idx === result.emails.length - 1 ? "bg-violet-500 text-white" :
+                                idx === 0 ? "bg-primary text-primary-foreground" :
+                                idx === result.emails.length - 1 ? "bg-violet-500 text-violet-50" :
                                 "bg-muted-foreground/20 text-muted-foreground"
                               }`}>{email.step}</div>
                               <span className="text-[9px] text-muted-foreground uppercase tracking-wide font-medium">
@@ -329,13 +338,15 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
                 </div>
 
                 {/* Total duration summary */}
-                <div className="mt-3 pt-3 border-t flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">
-                    {result.emails.length} email{result.emails.length !== 1 ? "s" : ""} in sequence
-                  </span>
-                  <span className="text-xs font-semibold text-foreground">
-                    Total span: {result.emails.reduce((acc, e) => acc + e.delayDays, 0)} days
-                  </span>
+                <div className="mt-3 pt-3 border-t space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      {result.emails.length} email{result.emails.length !== 1 ? "s" : ""} · cadence: {result.emails.map((e, i) => i === 0 ? "Day 0" : `+${e.delayDays}d`).join(" → ")}
+                    </span>
+                    <span className="text-xs font-semibold text-foreground">
+                      Total span: {result.emails.reduce((acc, e) => acc + e.delayDays, 0)} days
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -355,7 +366,7 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
                       <Badge className="bg-primary/10 text-primary border-0 text-[10px]">
                         <Sparkles className="h-3 w-3 mr-0.5" />AI Generated
                       </Badge>
-                      <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-200 bg-emerald-50">
+                      <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-400/30 bg-emerald-500/10">
                         <ShieldCheck className="h-3 w-3 mr-0.5" />Deliverability optimized
                       </Badge>
                     </div>
@@ -374,6 +385,19 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
 
               <Separator />
 
+              {/* Variable substitution info */}
+              {result.emails.some(e => /\{(name|first_name|last_name|email|company)\}/i.test(e.bodyHtml + e.subject)) && (
+                <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 flex items-start gap-2">
+                  <Lightbulb className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
+                  <p className="text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">Personalization detected</span> — variables like{" "}
+                    <code className="bg-muted rounded px-1">{`{first_name}`}</code>,{" "}
+                    <code className="bg-muted rounded px-1">{`{name}`}</code>,{" "}
+                    <code className="bg-muted rounded px-1">{`{email}`}</code> will be replaced with each contact's data when the email is sent.
+                  </p>
+                </div>
+              )}
+
               {/* Email list */}
               <div>
                 <h4 className="text-sm font-medium text-foreground mb-3 flex items-center gap-1.5">
@@ -391,7 +415,11 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
                           {/* Header */}
                           <div className="flex items-center gap-2 p-3">
                             <Badge variant="outline" className="text-[10px] font-mono shrink-0">Step {email.step}</Badge>
-                            {idx > 0 && <span className="text-[10px] text-muted-foreground">+{email.delayDays}d</span>}
+                            <Badge variant="outline" className={`text-[10px] shrink-0 ${
+                              idx === 0 ? "text-primary border-primary/30 bg-primary/5" : "text-muted-foreground"
+                            }`}>
+                              {idx === 0 ? "Day 0" : `+${email.delayDays}d`}
+                            </Badge>
                             <span className="text-sm font-medium truncate flex-1">{email.subject}</span>
                             <div className="flex items-center gap-1">
                               <Button
@@ -470,7 +498,7 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
               </div>
             </div>
           )}
-        </ScrollArea>
+        </div>
 
         <DialogFooter className="mt-2">
           {step === "goal" && (

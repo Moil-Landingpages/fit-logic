@@ -169,6 +169,14 @@ function formatCurrency(value: number | null) {
   }).format(value);
 }
 
+// Maps contact status tab keys to the DB status values they cover
+const STATUS_TAB_MAP: Record<string, string[]> = {
+  leads:       ["new_lead", "lead"],
+  in_progress: ["contacted", "qualified", "proposal", "negotiation"],
+  active:      ["won"],
+  cold:        ["lost", "inactive"],
+};
+
 export default function Patients() {
   const queryClient = useQueryClient();
   const saved = loadFilters();
@@ -250,25 +258,28 @@ export default function Patients() {
 
   const parseTags = (t: string) => t ? t.split(",").map(s => s.trim()).filter(Boolean) : [];
 
-  const patientPayload = (form: PatientFormData) => ({
-    first_name: form.first_name,
-    last_name: form.last_name,
-    email: form.email || null,
-    phone: form.phone || null,
-    date_of_birth: form.date_of_birth || null,
-    company: form.company || null,
-    deal_value: form.deal_value ? Number(form.deal_value) : null,
-    lead_source: form.lead_source || null,
-    pipeline_stage: form.pipeline_stage || "new_lead",
-    gender: (form as unknown as Record<string, unknown>).gender as string || null,
-    address: form.address || null,
-    city: form.city || null,
-    state: form.state || null,
-    zip_code: form.zip_code || null,
-    status: form.status,
-    tags: parseTags(form.tags),
-    notes: form.notes || null,
-  });
+  const patientPayload = (form: PatientFormData) => {
+    const stage = form.status || form.pipeline_stage || "new_lead";
+    return {
+      first_name: form.first_name,
+      last_name: form.last_name,
+      email: form.email || null,
+      phone: form.phone || null,
+      date_of_birth: form.date_of_birth || null,
+      company: form.company || null,
+      deal_value: form.deal_value ? Number(form.deal_value) : null,
+      lead_source: form.lead_source || null,
+      pipeline_stage: stage,
+      gender: (form as unknown as Record<string, unknown>).gender as string || null,
+      address: form.address || null,
+      city: form.city || null,
+      state: form.state || null,
+      zip_code: form.zip_code || null,
+      status: stage,
+      tags: parseTags(form.tags),
+      notes: form.notes || null,
+    };
+  };
 
   const addMutation = useMutation({
     mutationFn: async (form: PatientFormData) => {
@@ -305,11 +316,12 @@ export default function Patients() {
     mutationFn: async (id: string) => {
       const { error } = await supabase.from("patients").delete().eq("id", id);
       if (error) throw error;
+      return id;
     },
-    onSuccess: () => {
+    onSuccess: (deletedId) => {
       queryClient.invalidateQueries({ queryKey: QK.patients });
       setDeleteTarget(null);
-      if (viewing?.id === deleteTarget?.id) setViewing(null);
+      if (viewing?.id === deletedId) { setViewing(null); setDetailTab("overview"); }
       toast({ title: "Contact deleted" });
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -346,14 +358,23 @@ export default function Patients() {
   };
 
   const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: allPatients.length, lead: 0, client: 0, active: 0, inactive: 0, archived: 0 };
-    allPatients.forEach(p => { counts[p.status] = (counts[p.status] || 0) + 1; });
+    const counts: Record<string, number> = { all: allPatients.length };
+    Object.entries(STATUS_TAB_MAP).forEach(([tab, statuses]) => {
+      counts[tab] = allPatients.filter(p => statuses.includes(p.status)).length;
+    });
     return counts;
   }, [allPatients]);
 
   const filtered = useMemo(() => {
     let result = allPatients;
-    if (statusFilter !== "all") result = result.filter(p => p.status === statusFilter);
+    if (statusFilter !== "all") {
+      const allowedStatuses = STATUS_TAB_MAP[statusFilter];
+      if (allowedStatuses) {
+        result = result.filter(p => allowedStatuses.includes(p.status));
+      } else {
+        result = result.filter(p => p.status === statusFilter);
+      }
+    }
     if (stageFilter !== "all") result = result.filter(p => p.pipeline_stage === stageFilter);
     if (sourceFilter !== "all") result = result.filter(p => p.lead_source === sourceFilter);
     if (search) {
@@ -717,12 +738,10 @@ export default function Patients() {
           {/* Status tabs */}
           <div className="flex items-center bg-card border rounded-lg p-0.5 shadow-card overflow-x-auto max-w-full">
             {[
-              { key: "all", label: "All" },
-              { key: "lead", label: "Leads" },
-              { key: "client", label: "Clients" },
-              { key: "active", label: "Active" },
-              { key: "inactive", label: "Cold" },
-              { key: "archived", label: "Closed" },
+              { key: "all",         label: "All" },
+              { key: "in_progress", label: "In Progress" },
+              { key: "active",      label: "Active" },
+              { key: "cold",        label: "Cold" },
             ].map((f) => (
               <button
                 key={f.key}
@@ -894,13 +913,15 @@ export default function Patients() {
               <TableBody>
                 {filtered.map((p) => (
                   <TableRow key={p.id} className={`cursor-pointer group ${selected.has(p.id) ? "bg-primary/5" : ""}`} onClick={() => setViewing(p)}>
-                    <TableCell onClick={(e) => { e.stopPropagation(); toggleSelect(p.id); }}>
-                      <input
-                        type="checkbox"
-                        checked={selected.has(p.id)}
-                        onChange={() => toggleSelect(p.id)}
-                        className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
-                      />
+                    <TableCell className="p-0" onClick={(e) => { e.stopPropagation(); toggleSelect(p.id); }}>
+                      <label className="flex items-center justify-center w-full h-full min-h-[44px] cursor-pointer px-3">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(p.id)}
+                          onChange={() => toggleSelect(p.id)}
+                          className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                        />
+                      </label>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-3">

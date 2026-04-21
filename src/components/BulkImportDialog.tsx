@@ -23,28 +23,29 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
-import { AlertCircle, CheckCircle2, Upload } from "lucide-react";
+import { AlertCircle, CheckCircle2, Upload, ArrowRight } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // ─── Field mapping ────────────────────────────────────────────────────────────
 
 const DB_FIELDS = [
-  { value: "_skip",          label: "— Skip column —" },
-  { value: "first_name",     label: "First name" },
-  { value: "last_name",      label: "Last name" },
-  { value: "email",          label: "Email" },
-  { value: "phone",          label: "Phone" },
-  { value: "date_of_birth",  label: "Date of birth" },
-  { value: "status",         label: "Status" },
-  { value: "pipeline_stage", label: "Pipeline stage" },
-  { value: "lead_source",    label: "Lead source" },
-  { value: "company",        label: "Company" },
-  { value: "deal_value",     label: "Deal value" },
-  { value: "address",        label: "Address" },
-  { value: "city",           label: "City" },
-  { value: "state",          label: "State" },
-  { value: "zip",            label: "ZIP" },
-  { value: "tags",           label: "Tags (comma-separated)" },
-  { value: "notes",          label: "Notes" },
+  { value: "_skip",          label: "— Skip column —",       type: "" },
+  { value: "first_name",     label: "First name",            type: "Text" },
+  { value: "last_name",      label: "Last name",             type: "Text" },
+  { value: "email",          label: "Email address",         type: "Email" },
+  { value: "phone",          label: "Phone number",          type: "Phone" },
+  { value: "date_of_birth",  label: "Date of birth",         type: "Date" },
+  { value: "status",         label: "Status",                type: "Text" },
+  { value: "pipeline_stage", label: "Pipeline stage",        type: "Text" },
+  { value: "lead_source",    label: "Lead source",           type: "Text" },
+  { value: "company",        label: "Company",               type: "Text" },
+  { value: "deal_value",     label: "Deal value",            type: "Number" },
+  { value: "address",        label: "Address",               type: "Text" },
+  { value: "city",           label: "City",                  type: "Text" },
+  { value: "state",          label: "State",                 type: "Text" },
+  { value: "zip",            label: "ZIP",                   type: "Text" },
+  { value: "tags",           label: "Tags",                  type: "List" },
+  { value: "notes",          label: "Notes",                 type: "Text" },
 ] as const;
 
 type DbField = (typeof DB_FIELDS)[number]["value"];
@@ -231,10 +232,17 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
       }
     }
 
-    // Require at least email or (first_name + last_name)
+    // Require at least a name (first or last) or a valid email
     const hasEmail = typeof rec.email === "string" && EMAIL_RE.test(rec.email as string);
-    const hasName = typeof rec.first_name === "string" && rec.first_name.trim().length > 0;
-    if (!hasEmail && !hasName) return null;
+    const hasFirstName = typeof rec.first_name === "string" && rec.first_name.trim().length > 0;
+    const hasLastName = typeof rec.last_name === "string" && rec.last_name.trim().length > 0;
+    if (!hasEmail && !hasFirstName && !hasLastName) return null;
+    // Fall back to email-derived name if name is missing but email exists
+    if (!hasFirstName && !hasLastName && hasEmail) {
+      const derived = deriveNameFromEmail(rec.email as string);
+      rec.first_name = derived.firstName || "Imported";
+      rec.last_name = derived.lastName || "";
+    }
 
     // Default required field — use selected contact type
     if (!rec.status) rec.status = contactType;
@@ -323,31 +331,42 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
           return { ...record, payload };
         });
 
-        const { error } = await supabase
-          .from("patients")
-          .upsert(normalizedRecords.map((record) => record.payload) as any, {
-            onConflict: "email",
-            ignoreDuplicates: false,
-          });
+        for (const record of normalizedRecords) {
+          const payload = record.payload;
+          const email = typeof payload.email === "string" ? payload.email : null;
 
-        if (error) {
-          for (const record of normalizedRecords) {
-            const { error: rowError } = await supabase
+          // If the record has an email, check if it already exists and update; otherwise insert
+          if (email) {
+            const { data: existing } = await supabase
               .from("patients")
-              .upsert(record.payload as any, {
-                onConflict: "email",
-                ignoreDuplicates: false,
-              });
+              .select("id")
+              .eq("email", email)
+              .maybeSingle();
 
-            if (rowError) {
-              errors++;
-              errList.push(`Row ${record.rowNumber}: ${rowError.message}`);
-            } else {
-              inserted++;
+            if (existing?.id) {
+              const { error: updateErr } = await supabase
+                .from("patients")
+                .update(payload as any)
+                .eq("id", existing.id);
+              if (updateErr) {
+                errors++;
+                errList.push(`Row ${record.rowNumber}: ${updateErr.message}`);
+              } else {
+                inserted++;
+              }
+              continue;
             }
           }
-        } else {
-          inserted += records.length;
+
+          const { error: insertErr } = await supabase
+            .from("patients")
+            .insert(payload as any);
+          if (insertErr) {
+            errors++;
+            errList.push(`Row ${record.rowNumber}: ${insertErr.message}`);
+          } else {
+            inserted++;
+          }
         }
       }
 
@@ -367,7 +386,7 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Bulk Import Contacts</DialogTitle>
           <DialogDescription>
@@ -393,71 +412,147 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
         )}
 
         {/* ── Step: Map ────────────────────────────────────────────────────── */}
-        {step === "map" && (
+        {step === "map" && (() => {
+          const mappedCount = Object.values(mapping).filter((v) => v !== "_skip").length;
+          return (
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              {rows.length.toLocaleString()} rows detected. Map your CSV columns to contact fields.
-            </p>
-
-            {/* Contact type selector */}
-            <div className="flex items-center gap-3 rounded-md border bg-muted/30 p-3">
-              <span className="text-sm font-medium">Import as:</span>
-              <div className="flex items-center bg-card border rounded-lg p-0.5">
-                {([{ key: "lead", label: "Leads" }, { key: "client", label: "Clients" }] as const).map((t) => (
-                  <button
-                    key={t.key}
-                    onClick={() => setContactType(t.key)}
-                    className={`px-4 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                      contactType === t.key
-                        ? "bg-primary text-primary-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {t.label}
-                  </button>
-                ))}
+            {/* Summary bar */}
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">
+                <span className="text-foreground">{mappedCount}/{headers.length} columns</span>
+                <span className="text-muted-foreground"> will be imported · {rows.length.toLocaleString()} rows</span>
+              </p>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Import as:</span>
+                <div className="flex items-center bg-card border rounded-lg p-0.5">
+                  {([{ key: "lead", label: "Leads" }, { key: "client", label: "Clients" }] as const).map((t) => (
+                    <button
+                      key={t.key}
+                      onClick={() => setContactType(t.key)}
+                      className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                        contactType === t.key
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <span className="text-xs text-muted-foreground">
-                All imported contacts will be tagged as {contactType === "lead" ? "leads" : "clients"}
-              </span>
             </div>
 
             {!emailMapped && (
-              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-3 text-sm text-amber-800 dark:text-amber-300">
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
                 <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-                <span>No email column mapped — duplicates won't be detected and contacts will always be inserted.</span>
+                <span>No email column mapped — duplicate detection is off, all rows will be inserted.</span>
               </div>
             )}
-            <div className="space-y-2 max-h-[340px] overflow-y-auto pr-1">
-              {headers.map((h) => (
-                <div key={h} className="flex items-center gap-3">
-                  <span className="text-sm font-mono w-40 shrink-0 truncate text-muted-foreground" title={h}>
-                    {h}
-                  </span>
-                  <Select
-                    value={mapping[h] ?? "_skip"}
-                    onValueChange={(v) => setMapping((m) => ({ ...m, [h]: v as DbField }))}
-                  >
-                    <SelectTrigger className="flex-1 h-8 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DB_FIELDS.map((f) => (
-                        <SelectItem key={f.value} value={f.value}>
-                          {f.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ))}
+
+            {/* Mailchimp-style mapping table */}
+            <div className="rounded-lg border overflow-hidden">
+              <div className="overflow-y-auto max-h-[380px]">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-muted/60 border-b">
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground w-10">Import</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground w-36">File column name</th>
+                      <th className="w-8" />
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground w-48">Match to field</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground">Preview data</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground w-24">Data type</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {headers.map((h) => {
+                      const fieldVal = mapping[h] ?? "_skip";
+                      const isSkipped = fieldVal === "_skip";
+                      const fieldDef = DB_FIELDS.find((f) => f.value === fieldVal);
+                      const previewVals = rows.slice(0, 2).map((r) => r[h]).filter(Boolean);
+                      return (
+                        <tr
+                          key={h}
+                          className={`transition-colors ${
+                            isSkipped ? "bg-muted/20 opacity-60" : "bg-background hover:bg-muted/30"
+                          }`}
+                        >
+                          {/* Import checkbox */}
+                          <td className="px-3 py-2.5 text-center">
+                            <Checkbox
+                              checked={!isSkipped}
+                              onCheckedChange={(checked) =>
+                                setMapping((m) => ({
+                                  ...m,
+                                  [h]: checked
+                                    ? (AUTO_MAP[h.toLowerCase().trim()] ?? "first_name")
+                                    : "_skip",
+                                }))
+                              }
+                            />
+                          </td>
+                          {/* CSV column name */}
+                          <td className="px-3 py-2.5">
+                            <span className="font-medium text-foreground truncate block max-w-[130px]" title={h}>{h}</span>
+                          </td>
+                          {/* Arrow */}
+                          <td className="text-center">
+                            <ArrowRight className={`h-4 w-4 mx-auto ${
+                              isSkipped ? "text-muted-foreground/40" : "text-primary"
+                            }`} />
+                          </td>
+                          {/* Field select */}
+                          <td className="px-3 py-2">
+                            <Select
+                              value={fieldVal}
+                              onValueChange={(v) => setMapping((m) => ({ ...m, [h]: v as DbField }))}
+                            >
+                              <SelectTrigger className="h-8 text-xs w-44">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {DB_FIELDS.map((f) => (
+                                  <SelectItem key={f.value} value={f.value} className="text-xs">
+                                    {f.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          {/* Preview data */}
+                          <td className="px-3 py-2.5">
+                            {previewVals.length > 0 ? (
+                              <div className="space-y-0.5">
+                                {previewVals.map((v, i) => (
+                                  <p key={i} className="text-xs text-muted-foreground truncate max-w-[160px]" title={v}>{v}</p>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground italic">no data</span>
+                            )}
+                          </td>
+                          {/* Data type */}
+                          <td className="px-3 py-2.5">
+                            <span className="text-xs text-muted-foreground">
+                              {isSkipped ? "—" : (fieldDef?.type || "Text")}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
+
             <DialogFooter>
               <Button variant="outline" onClick={handleClose}>Cancel</Button>
-              <Button onClick={() => setStep("preview")}>Preview import</Button>
+              <Button onClick={() => setStep("preview")}>
+                Continue → Preview {mappedCount} field{mappedCount !== 1 ? "s" : ""}
+              </Button>
             </DialogFooter>
           </div>
-        )}
+          );
+        })()}
 
         {/* ── Step: Preview ────────────────────────────────────────────────── */}
         {step === "preview" && (

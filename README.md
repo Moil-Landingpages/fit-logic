@@ -1,73 +1,117 @@
-# Welcome to your Lovable project
+# Fit Logic — CRM & Sales Pipeline
 
-## Project info
+A full-stack CRM built for Fit Logic, a functional medicine clinic. Manages contacts, email campaigns, sequences, referrals, intake forms, and a sales pipeline with AI-powered email generation.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+---
 
-## How can I edit this code?
+## Tech Stack
 
-There are several ways of editing your application.
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 14 (App Router) |
+| Language | TypeScript |
+| UI | React 18 + shadcn/ui + Tailwind CSS |
+| Database | Supabase (PostgreSQL) |
+| Email | Resend |
+| AI | Google Gemini |
+| Charts | Recharts |
+| Forms | React Hook Form + Zod |
+| State | TanStack Query v5 |
 
-**Use Lovable**
+---
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Features
 
-Changes made via Lovable will be committed automatically to this repo.
+- **Sales Pipeline** — Kanban board with drag-and-drop, stage expand/collapse, and stage detail sheet
+- **Contacts** — Full contact management with import/export CSV, filtering, and bulk actions
+- **Campaigns** — AI-generated single campaigns and multi-step email sequences
+- **Email Tracking** — Open pixel, click rewriting, bounce and complaint handling via Resend webhooks
+- **Inbox** — Inquiry management with Gmail sync and AI classification
+- **Analytics** — Pipeline funnel, email engagement, and inquiry trend charts
+- **Referrals** — Referral link generation and conversion tracking
+- **FAQ / Knowledge Base** — AI-assisted FAQ management
+- **Settings** — Practice config, business hours, staff, and integrations
 
-**Use your preferred IDE**
+---
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+## Local Development
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+**Prerequisites:** Node.js 18+ and npm
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+# 1. Clone the repo
+git clone git@github.com:Moil-Landingpages/fit-logic.git
+cd fit-logic
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+# 2. Install dependencies
+npm install
 
-# Step 3: Install the necessary dependencies.
-npm i
+# 3. Set up environment variables (see below)
+cp .env.example .env.local
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# 4. Start the dev server
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+---
 
-**Use GitHub Codespaces**
+## Environment Variables
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+Create a `.env.local` file in the project root with the following:
 
-## What technologies are used for this project?
+```env
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
 
-This project is built with:
+# Resend (email sending)
+RESEND_API_KEY=
+FROM_EMAIL=
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+# Google Gemini (AI campaign generation)
+GEMINI_API_KEY=
 
-## How can I deploy this project?
+# App URL (used for tracking pixel and unsubscribe links)
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+# Cron job protection
+CRON_SECRET=
+```
 
-## Can I connect a custom domain to my Lovable project?
+---
 
-Yes, you can!
+## Scripts
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+```sh
+npm run dev      # Start development server
+npm run build    # Build for production
+npm run start    # Start production server
+npm run lint     # Run ESLint
+```
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+---
+
+## Cron Job
+
+The campaign scheduler runs at `/api/cron/schedule` (GET). Configure this as an hourly cron in your deployment platform (e.g. Vercel Cron).
+
+Emails are only sent during the **exact scheduled hour** in the practice's configured timezone — the cron fires hourly but skips outside the scheduled window.
+
+Set `CRON_SECRET` in your environment and pass it as `Authorization: Bearer <CRON_SECRET>` to secure the endpoint.
+
+---
+
+## Email Webhooks
+
+Point your Resend webhook to:
+
+```
+POST https://your-domain.com/api/email-webhook
+```
+
+Enable the following events: `email.bounced`, `email.complained`
+
+Opens and clicks are tracked internally via pixel and link rewriting — no Resend webhook needed for those.

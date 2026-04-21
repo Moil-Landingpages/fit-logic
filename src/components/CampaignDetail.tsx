@@ -67,6 +67,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
   const [showAddRecipients, setShowAddRecipients] = useState(false);
   const [newRecipients, setNewRecipients] = useState<Recipient[]>([]);
   const [showSchedulePanel, setShowSchedulePanel] = useState(false);
+  const [showSendLog, setShowSendLog] = useState(false);
 
   // Schedule config state
   const [scheduleDate, setScheduleDate] = useState(() => {
@@ -89,6 +90,21 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
       if (error) throw error;
       return data;
     },
+  });
+
+  const { data: sendLog = [] } = useQuery({
+    queryKey: ["campaign-send-log", campaign.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("campaign_send_log")
+        .select("id, status, step_number, sent_at, error_message, opened_at, clicked_at, tracking_id, recipient_id")
+        .eq("campaign_id", campaign.id)
+        .order("sent_at", { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: showSendLog,
   });
 
   const { data: sequences = [] } = useQuery({
@@ -159,9 +175,10 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
 
   const sendNowMut = useMutation({
     mutationFn: async () => {
+      const now = new Date().toISOString();
       const { error } = await supabase.from("campaigns").update({
         status: "scheduled",
-        scheduled_at: new Date().toISOString(),
+        scheduled_at: now,
         auto_schedule: true,
         max_sends_per_day: maxSendsPerDay,
         business_hours_start: 0,
@@ -169,10 +186,22 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
         business_days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
       }).eq("id", campaign.id);
       if (error) throw error;
+      // Immediately trigger the queue so step 1 goes out now
+      try {
+        await fetch("/api/process-campaign-queue", { method: "POST" });
+      } catch {
+        // Non-fatal — cron will catch it within a minute
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["campaigns"] });
-      toast({ title: "Campaign sending now!", description: "Emails will start going out within 1 minute." });
+      const isSeq = campaign.campaign_type === "sequence";
+      toast({
+        title: isSeq ? "Sequence started!" : "Campaign sending now!",
+        description: isSeq
+          ? "Email 1 sent now. Remaining emails will follow the scheduled cadence."
+          : "Emails will start going out shortly.",
+      });
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -471,6 +500,9 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
           <TabsTrigger value="overview" className="text-xs"><Mail className="h-3 w-3 mr-1" />Email Content</TabsTrigger>
           <TabsTrigger value="recipients" className="text-xs"><Users className="h-3 w-3 mr-1" />Recipients ({recipients.length})</TabsTrigger>
           <TabsTrigger value="activity" className="text-xs"><Activity className="h-3 w-3 mr-1" />Activity Log</TabsTrigger>
+          <TabsTrigger value="sendlog" className="text-xs" onClick={() => setShowSendLog(true)}>
+            <Send className="h-3 w-3 mr-1" />Send Log
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4 space-y-4">
@@ -553,6 +585,54 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
 
         <TabsContent value="activity" className="mt-4">
           <CampaignActivityLog campaignId={campaign.id} />
+        </TabsContent>
+
+        <TabsContent value="sendlog" className="mt-4">
+          <Card>
+            <CardContent className="p-0">
+              {sendLog.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-8">
+                  {showSendLog ? "No send log entries yet." : "Loading…"}
+                </p>
+              ) : (
+                <ScrollArea className="max-h-[450px]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs">Status</TableHead>
+                        <TableHead className="text-xs">Step</TableHead>
+                        <TableHead className="text-xs">Sent At</TableHead>
+                        <TableHead className="text-xs">Opened</TableHead>
+                        <TableHead className="text-xs">Clicked</TableHead>
+                        <TableHead className="text-xs">Error</TableHead>
+                        <TableHead className="text-xs">Tracking ID</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {sendLog.map((log: any) => (
+                        <TableRow key={log.id}>
+                          <TableCell>
+                            <Badge className={`border-0 text-[10px] ${
+                              log.status === "sent" ? "bg-primary/10 text-primary" :
+                              log.status === "failed" ? "bg-destructive/10 text-destructive" :
+                              log.status === "bounced" ? "bg-amber-500/10 text-amber-600" :
+                              "bg-muted text-muted-foreground"
+                            }`}>{log.status}</Badge>
+                          </TableCell>
+                          <TableCell className="text-xs">{log.step_number ?? "—"}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{log.sent_at ? new Date(log.sent_at).toLocaleString() : "—"}</TableCell>
+                          <TableCell className="text-xs">{log.opened_at ? <Badge className="bg-emerald-500/10 text-emerald-600 border-0 text-[9px]">Yes</Badge> : "—"}</TableCell>
+                          <TableCell className="text-xs">{log.clicked_at ? <Badge className="bg-blue-500/10 text-blue-600 border-0 text-[9px]">Yes</Badge> : "—"}</TableCell>
+                          <TableCell className="text-xs text-destructive max-w-[180px] truncate" title={log.error_message ?? ""}>{log.error_message || "—"}</TableCell>
+                          <TableCell className="text-[10px] text-muted-foreground font-mono max-w-[80px] truncate" title={log.tracking_id ?? ""}>{log.tracking_id?.slice(0, 8) ?? "—"}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
