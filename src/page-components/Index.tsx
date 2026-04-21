@@ -7,7 +7,7 @@ import { QK } from "@/lib/queryKeys";
 import { useRouter } from "next/navigation";
 import {
   LayoutDashboard, Users, Mail, TrendingUp, ArrowRight,
-  Share2, Plus, GripVertical, Target, ChevronDown, ChevronUp, Maximize2, X, Search, ArrowRightLeft,
+  Share2, Plus, GripVertical, Target, ChevronDown, Maximize2, X, Search, ArrowRightLeft,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -126,10 +126,9 @@ function KanbanColumn({
   onExpand: (stage: typeof PIPELINE_STAGES[number], contacts: ContactRow[]) => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
-  const [expanded, setExpanded] = useState(false);
 
   const overflow = contacts.length > COLLAPSED_LIMIT;
-  const visible = expanded ? contacts : contacts.slice(0, COLLAPSED_LIMIT);
+  const visible = contacts.slice(0, COLLAPSED_LIMIT);
   const hidden = contacts.length - COLLAPSED_LIMIT;
 
   return (
@@ -220,17 +219,13 @@ function KanbanColumn({
           </button>
         )}
 
-        {/* Show more / collapse */}
+        {/* Show more → opens the full stage sheet */}
         {overflow && (
           <button
-            onClick={() => setExpanded(!expanded)}
+            onClick={() => onExpand(stage, contacts)}
             className="w-full flex items-center justify-center gap-1 py-2 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors border border-dashed border-border/40"
           >
-            {expanded ? (
-              <><ChevronUp className="h-3 w-3" /> Show less</>
-            ) : (
-              <><ChevronDown className="h-3 w-3" /> {hidden} more</>
-            )}
+            <ChevronDown className="h-3 w-3" /> {hidden} more
           </button>
         )}
       </div>
@@ -389,6 +384,8 @@ const Index = () => {
       if (error) throw error;
       return (data ?? []) as ContactRow[];
     },
+    refetchOnMount: true,
+    staleTime: 0,
   });
 
   const { data: campaigns = [] } = useQuery({
@@ -427,7 +424,7 @@ const Index = () => {
   const stageMutation = useMutation({
     mutationFn: async ({ id, stage }: { id: string; stage: string }) => {
       const { error } = await supabase
-        .from("patients").update({ status: stage, pipeline_stage: stage }).eq("id", id);
+        .from("patients").update({ status: stage }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: QK.patients }),
@@ -438,7 +435,7 @@ const Index = () => {
 
   const moveToStageMutation = useMutation({
     mutationFn: async ({ id, stage }: { id: string; stage: string }) => {
-      const { error } = await supabase.from("patients").update({ status: stage, pipeline_stage: stage }).eq("id", id);
+      const { error } = await supabase.from("patients").update({ status: stage }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -450,17 +447,24 @@ const Index = () => {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to move contact"),
   });
 
+  // Normalise legacy status values to a pipeline stage key
+  const STAGE_KEYS = new Set(PIPELINE_STAGES.map((s) => s.key));
+  const toStage = (status: string): PipelineStage => {
+    if (STAGE_KEYS.has(status as PipelineStage)) return status as PipelineStage;
+    return "new_lead"; // catch-all: all legacy / unknown values land in New Lead
+  };
+
   const handleDrop = (targetStage: string) => {
     if (!draggingId || !targetStage) return;
     const contact = contacts.find((c) => c.id === draggingId);
-    if (!contact || contact.status === targetStage) { setDraggingId(null); return; }
+    if (!contact || toStage(contact.status) === targetStage) { setDraggingId(null); return; }
     stageMutation.mutate({ id: draggingId, stage: targetStage });
     setDraggingId(null);
   };
 
-  // Group contacts by stage
+  // Group contacts by stage — every contact lands in exactly one column
   const byStage = Object.fromEntries(
-    PIPELINE_STAGES.map((s) => [s.key, contacts.filter((c) => c.status === s.key)])
+    PIPELINE_STAGES.map((s) => [s.key, contacts.filter((c) => toStage(c.status) === s.key)])
   ) as Record<PipelineStage, ContactRow[]>;
 
   // KPIs
@@ -545,10 +549,9 @@ const Index = () => {
           {contacts.length > 0 && (
             <div className="mb-4 flex items-center gap-2 overflow-x-auto pb-1">
               <span className="text-xs font-medium text-muted-foreground shrink-0">Recently added:</span>
-              {contacts.slice(0, 6).map((c) => (
+              {contacts.slice(0, 5).map((c) => (
                 <button
                   key={c.id}
-                  onClick={() => router.push(`/contacts?id=${c.id}`)}
                   className="flex items-center gap-1.5 shrink-0 rounded-full border border-border bg-background px-3 py-1 text-xs hover:bg-muted/60 transition-colors"
                 >
                   <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-[10px] font-semibold flex items-center justify-center shrink-0">

@@ -7,7 +7,7 @@ import type { TablesUpdate } from "@/integrations/supabase/types";
 import {
   ArrowLeft, Pencil, Clock, Pause, Play, Send, Eye, Users,
   ChevronDown, ChevronUp, Mail, Layers, UserPlus, Calendar,
-  CalendarClock, Shield, X, MousePointerClick, Activity, RotateCcw, Zap
+  CalendarClock, Shield, X, MousePointerClick, Activity, RotateCcw, Zap, Save
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
@@ -68,6 +69,16 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
   const [newRecipients, setNewRecipients] = useState<Recipient[]>([]);
   const [showSchedulePanel, setShowSchedulePanel] = useState(false);
   const [showSendLog, setShowSendLog] = useState(false);
+
+  // Email editing
+  const [editingEmail, setEditingEmail] = useState<{
+    type: "template" | "sequence";
+    id: string;
+    subject: string;
+    previewText: string;
+    bodyHtml: string;
+    stepNumber?: number;
+  } | null>(null);
 
   // Schedule config state
   const [scheduleDate, setScheduleDate] = useState(() => {
@@ -202,6 +213,33 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
           ? "Email 1 sent now. Remaining emails will follow the scheduled cadence."
           : "Emails will start going out shortly.",
       });
+    },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const saveEmailMut = useMutation({
+    mutationFn: async () => {
+      if (!editingEmail) return;
+      if (editingEmail.type === "template") {
+        const { error } = await supabase.from("email_templates").update({
+          subject: editingEmail.subject,
+          preview_text: editingEmail.previewText,
+          body_html: editingEmail.bodyHtml,
+        }).eq("id", editingEmail.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("campaign_sequences").update({
+          subject_override: editingEmail.subject,
+          body_html_override: editingEmail.bodyHtml,
+        }).eq("id", editingEmail.id);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["campaign-template", campaign.template_id] });
+      queryClient.invalidateQueries({ queryKey: ["campaign-sequences", campaign.id] });
+      setEditingEmail(null);
+      toast({ title: "Email saved" });
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -507,7 +545,18 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
 
         <TabsContent value="overview" className="mt-4 space-y-4">
           {campaign.campaign_type === "single" && template && (
-            <EmailPreview html={template.body_html || ""} subject={template.subject} previewText={template.preview_text || undefined} />
+            <div className="space-y-3">
+              <div className="flex justify-end">
+                <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setEditingEmail({
+                  type: "template", id: template.id,
+                  subject: template.subject, previewText: template.preview_text || "",
+                  bodyHtml: template.body_html || "",
+                })}>
+                  <Pencil className="h-3.5 w-3.5 mr-1" />Edit Email
+                </Button>
+              </div>
+              <EmailPreview html={template.body_html || ""} subject={template.subject} previewText={template.preview_text || undefined} />
+            </div>
           )}
           {campaign.campaign_type === "single" && !template && (
             <Card><CardContent className="py-8 text-center text-muted-foreground text-sm">No template linked. Edit this campaign to add one.</CardContent></Card>
@@ -525,6 +574,10 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
                       <Badge variant="outline" className="text-[10px] font-mono shrink-0">Step {s.step_number}</Badge>
                       {i > 0 && <span className="text-[10px] text-muted-foreground">+{s.delay_days}d</span>}
                       <span className="text-sm font-medium truncate flex-1">{s.subject_override || "No subject"}</span>
+                      <Pencil
+                        className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground shrink-0"
+                        onClick={(e) => { e.stopPropagation(); setEditingEmail({ type: "sequence", id: s.id, subject: s.subject_override || "", previewText: "", bodyHtml: s.body_html_override || "", stepNumber: s.step_number }); }}
+                      />
                       {isOpen ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
                     </button>
                     {isOpen && (
@@ -660,6 +713,68 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
           </CardContent>
         </Card>
       )}
+
+      {/* Email Editor Dialog */}
+      <Dialog open={!!editingEmail} onOpenChange={v => { if (!v) setEditingEmail(null); }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>
+              {editingEmail?.type === "sequence" ? `Edit Step ${editingEmail.stepNumber}` : "Edit Email"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto space-y-4 py-2 pr-1">
+            <div>
+              <Label className="text-xs">Subject Line</Label>
+              <Input
+                className="mt-1 h-9 text-sm"
+                value={editingEmail?.subject ?? ""}
+                onChange={e => setEditingEmail(p => p ? { ...p, subject: e.target.value } : p)}
+                placeholder="Email subject…"
+              />
+            </div>
+            {editingEmail?.type === "template" && (
+              <div>
+                <Label className="text-xs">Preview Text</Label>
+                <Input
+                  className="mt-1 h-9 text-sm"
+                  value={editingEmail?.previewText ?? ""}
+                  onChange={e => setEditingEmail(p => p ? { ...p, previewText: e.target.value } : p)}
+                  placeholder="Short preview shown in inbox…"
+                />
+              </div>
+            )}
+            <div className="flex-1">
+              <Label className="text-xs">Email Body (HTML)</Label>
+              <Textarea
+                className="mt-1 text-xs font-mono min-h-[320px] resize-y"
+                value={editingEmail?.bodyHtml ?? ""}
+                onChange={e => setEditingEmail(p => p ? { ...p, bodyHtml: e.target.value } : p)}
+                placeholder="<p>Hi {first_name},</p>…"
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">Use <code className="bg-muted px-1 rounded">{`{first_name}`}</code> for personalization. HTML is supported.</p>
+            </div>
+            {editingEmail?.bodyHtml && (
+              <div>
+                <Label className="text-xs text-muted-foreground">Preview</Label>
+                <div className="mt-1 rounded-lg border overflow-hidden">
+                  <EmailPreview html={editingEmail.bodyHtml} subject={editingEmail.subject} />
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingEmail(null)}>Cancel</Button>
+            <Button
+              className="gradient-brand text-primary-foreground"
+              onClick={() => saveEmailMut.mutate()}
+              disabled={saveEmailMut.isPending || !editingEmail?.subject.trim()}
+            >
+              <Save className="h-3.5 w-3.5 mr-1" />
+              {saveEmailMut.isPending ? "Saving…" : "Save Email"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Add Recipients Dialog */}
       <Dialog open={showAddRecipients} onOpenChange={v => { if (!v) { setShowAddRecipients(false); setNewRecipients([]); } }}>

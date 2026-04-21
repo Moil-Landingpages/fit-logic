@@ -21,13 +21,6 @@ const sourceLabels: Record<string, string> = {
   email: "Email", portal: "Patient Portal", phone: "Phone Call", manual: "Manual Entry",
 };
 
-const QUICK_REPLIES = [
-  "Thanks for reaching out! We'll get back to you within 24 hours.",
-  "Your appointment has been confirmed. See you soon!",
-  "Lab results typically process within 3-5 business days.",
-  "Please call our office for immediate assistance.",
-];
-
 interface StaffRow {
   id: string;
   name: string;
@@ -42,19 +35,35 @@ interface Props {
 
 export function InquiryDetail({ inquiry, onUpdate }: Props) {
   const [reply, setReply] = useState("");
+  const [sending, setSending] = useState(false);
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [escalationStaffId, setEscalationStaffId] = useState<string | null>(null);
   const [assignedStaffName, setAssignedStaffName] = useState<string | null>(null);
   const [classifying, setClassifying] = useState(false);
   const SourceIcon = sourceIcons[inquiry.source] ?? Mail;
 
-  // Load staff list and escalation target from practice_settings
+  // Load staff list
   useEffect(() => {
     supabase.from("staff").select("id, name, role, active").eq("active", true)
       .then((staffRes) => {
         if (staffRes.data) setStaff(staffRes.data);
       });
   }, []);
+
+  // Auto-classify when inquiry loads if not yet classified
+  useEffect(() => {
+    if (!inquiry.category_confidence && inquiry.status === "pending") {
+      fetch("/api/classify-inquiry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inquiry_id: inquiry.id }),
+      })
+        .then(r => r.json())
+        .then(data => { if (data?.updates) onUpdate(inquiry.id, data.updates); })
+        .catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inquiry.id]);
 
   useEffect(() => {
     if (inquiry.assigned_to && staff.length) {
@@ -123,16 +132,28 @@ export function InquiryDetail({ inquiry, onUpdate }: Props) {
 
   const handleSendReply = async () => {
     if (!reply.trim()) return;
-    const updates = {
-      response_text: reply,
-      status: "resolved" as const,
-      resolved_at: new Date().toISOString(),
-    };
-    const { error } = await supabase.from("inquiries").update(updates).eq("id", inquiry.id);
-    if (error) { toast.error(error.message); return; }
-    onUpdate(inquiry.id, updates);
-    toast.success("Reply sent & inquiry resolved");
-    setReply("");
+    setSending(true);
+    try {
+      const res = await fetch("/api/send-inquiry-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inquiry_id: inquiry.id, reply_text: reply }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? "Send failed");
+      const updates = {
+        response_text: reply,
+        status: "resolved" as const,
+        resolved_at: new Date().toISOString(),
+      };
+      onUpdate(inquiry.id, updates);
+      toast.success("Reply sent & inquiry resolved");
+      setReply("");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to send reply");
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -229,21 +250,6 @@ export function InquiryDetail({ inquiry, onUpdate }: Props) {
             </div>
 
             <div>
-              <p className="text-xs font-medium text-muted-foreground mb-2">Quick Replies</p>
-              <div className="flex flex-wrap gap-2">
-                {QUICK_REPLIES.map((qr, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setReply(qr)}
-                    className="text-xs rounded-full border px-3 py-1.5 hover:bg-accent transition-colors text-left"
-                  >
-                    {qr.length > 50 ? qr.substring(0, 50) + "…" : qr}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
               <Textarea
                 placeholder="Write a reply..."
                 value={reply}
@@ -253,11 +259,11 @@ export function InquiryDetail({ inquiry, onUpdate }: Props) {
               <div className="flex justify-end mt-2">
                 <Button
                   onClick={handleSendReply}
-                  disabled={!reply.trim()}
+                  disabled={!reply.trim() || sending}
                   className="gap-1.5 gradient-brand text-primary-foreground"
                 >
-                  <Send className="h-3.5 w-3.5" />
-                  Send Reply
+                  {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  {sending ? "Sending…" : "Send Reply"}
                 </Button>
               </div>
             </div>

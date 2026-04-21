@@ -46,6 +46,7 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
     new Set(recipients.filter(r => r.patient_id).map(r => r.patient_id!))
   );
   const [selectedSegmentId, setSelectedSegmentId] = useState<string>("");
+  const [appliedSegmentId, setAppliedSegmentId] = useState<string>("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const { data: customers = [] } = useQuery({
@@ -69,10 +70,9 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
     },
   });
 
-  // All patients (for segment evaluation) — loaded lazily only when a segment is selected
+  // All patients for segment evaluation — loaded eagerly so they're ready when a segment is selected
   const { data: allPatientsForSeg = [] } = useQuery({
-    queryKey: ["patients-for-segment", selectedSegmentId],
-    enabled: !!selectedSegmentId,
+    queryKey: ["patients-for-segment-eval"],
     queryFn: async () => {
       const { data } = await supabase.from("patients").select("*").not("email", "is", null);
       return (data ?? []) as unknown as PatientRow[];
@@ -88,23 +88,44 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
     return resolveSegmentMembers(allPatientsForSeg, { rules, manualContactIds });
   })();
 
-  const addFromSegment = () => {
-    if (!segmentMatches.length) return;
-    const existingEmails = new Set(recipients.map(r => r.email.toLowerCase()));
+  const applySegment = (segId: string, matches: PatientRow[]) => {
+    // Remove previously applied segment contacts first
+    const withoutOld = appliedSegmentId
+      ? recipients.filter(r => !(r.source === "customer" && r.patient_id && segmentMatches.some(m => m.id === r.patient_id)))
+      : [...recipients];
+    const existingEmails = new Set(withoutOld.map(r => r.email.toLowerCase()));
     const toAdd: Recipient[] = [];
     let dupeCount = 0;
-    for (const p of segmentMatches) {
+    const nextIds = new Set(selectedCustomerIds);
+    for (const p of matches) {
       const email = p.email as string;
       if (existingEmails.has(email.toLowerCase())) continue;
       if (activeEmailSet.has(email.toLowerCase())) dupeCount++;
-      toAdd.push({ email, name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(), patient_id: p.id as string, source: "customer" });
+      toAdd.push({ email, name: `${(p as any).first_name ?? ""} ${(p as any).last_name ?? ""}`.trim(), patient_id: p.id, source: "customer" });
       existingEmails.add(email.toLowerCase());
-      setSelectedCustomerIds(prev => { const n = new Set(prev); n.add(p.id as string); return n; });
+      nextIds.add(p.id);
     }
-    onChange([...recipients, ...toAdd]);
-    let msg = `Added ${toAdd.length} contact${toAdd.length !== 1 ? "s" : ""} from segment`;
+    setSelectedCustomerIds(nextIds);
+    setAppliedSegmentId(segId);
+    onChange([...withoutOld, ...toAdd]);
+    let msg = `${toAdd.length} contact${toAdd.length !== 1 ? "s" : ""} added from segment`;
     if (dupeCount > 0) msg += ` (${dupeCount} overlap with active campaigns)`;
     toast({ title: msg });
+  };
+
+  const removeSegment = () => {
+    const seg = segments.find(s => s.id === appliedSegmentId);
+    const segRules: SegmentRule[] = Array.isArray(seg?.rules) ? seg!.rules as unknown as SegmentRule[] : [];
+    const segManual: string[] = Array.isArray(seg?.manual_contact_ids) ? seg!.manual_contact_ids as string[] : [];
+    const segMembers = resolveSegmentMembers(allPatientsForSeg, { rules: segRules, manualContactIds: segManual });
+    const segIds = new Set(segMembers.map(p => p.id as string));
+    const nextIds = new Set(selectedCustomerIds);
+    segIds.forEach(id => nextIds.delete(id));
+    setSelectedCustomerIds(nextIds);
+    setAppliedSegmentId("");
+    setSelectedSegmentId("");
+    onChange(recipients.filter(r => !r.patient_id || !segIds.has(r.patient_id)));
+    toast({ title: "Segment contacts removed" });
   };
 
   // Fetch emails already in active campaigns/sequences (not draft, not completed)
@@ -328,7 +349,18 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
             <>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">Select a segment</Label>
-                <Select value={selectedSegmentId} onValueChange={setSelectedSegmentId}>
+                <Select
+                  value={selectedSegmentId}
+                  onValueChange={id => {
+                    setSelectedSegmentId(id);
+                    const seg = segments.find(s => s.id === id);
+                    if (!seg) return;
+                    const rules: SegmentRule[] = Array.isArray(seg.rules) ? seg.rules as unknown as SegmentRule[] : [];
+                    const manualContactIds = Array.isArray(seg.manual_contact_ids) ? seg.manual_contact_ids as string[] : [];
+                    const matches = resolveSegmentMembers(allPatientsForSeg, { rules, manualContactIds });
+                    applySegment(id, matches);
+                  }}
+                >
                   <SelectTrigger className="h-8 text-xs">
                     <SelectValue placeholder="Choose segment…" />
                   </SelectTrigger>
@@ -344,15 +376,28 @@ export function CampaignRecipients({ recipients, onChange, campaignId }: Campaig
                   </SelectContent>
                 </Select>
               </div>
-              {selectedSegmentId && (
-                <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                  <p className="text-xs text-muted-foreground">
-                    <span className="font-medium text-foreground">{segmentMatches.length}</span> matching contacts with email addresses
-                  </p>
-                  <Button size="sm" className="text-xs h-7 w-full" onClick={addFromSegment} disabled={segmentMatches.length === 0}>
-                    <Plus className="h-3 w-3 mr-1" /> Add {segmentMatches.length} contacts
+              {appliedSegmentId && (
+                <div className="rounded-lg border bg-primary/5 border-primary/20 p-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-medium text-foreground">
+                      {segments.find(s => s.id === appliedSegmentId)?.name}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {recipients.filter(r => r.source === "customer").length} contacts added from this segment
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs text-destructive border-destructive/30 hover:bg-destructive/5 shrink-0"
+                    onClick={removeSegment}
+                  >
+                    <Trash2 className="h-3 w-3 mr-1" />Remove
                   </Button>
                 </div>
+              )}
+              {selectedSegmentId && !appliedSegmentId && allPatientsForSeg.length === 0 && (
+                <p className="text-xs text-muted-foreground text-center py-2">Loading contacts…</p>
               )}
             </>
           )}

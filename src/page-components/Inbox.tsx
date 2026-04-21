@@ -16,14 +16,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 
 const CATEGORIES = [
-  { value: "General_Info", label: "General Info" },
-  { value: "Appointment", label: "Appointment" },
-  { value: "Billing", label: "Billing" },
-  { value: "Medical", label: "Medical" },
-  { value: "Complaint", label: "Complaint" },
-  { value: "Sales", label: "Sales" },
-  { value: "Spam", label: "Spam" },
-  { value: "Other", label: "Other" },
+  { value: "Appointment_Scheduling", label: "Consultations" },
+  { value: "Health_Questions",       label: "Results & Outcomes" },
+  { value: "Prescription_Lab_Requests", label: "Services & Programs" },
+  { value: "Billing_Insurance",      label: "Pricing & Payment" },
+  { value: "Urgent_Red_Flags",       label: "Urgent / Escalation" },
+  { value: "General_Info",           label: "General" },
 ];
 
 const Inbox = () => {
@@ -54,6 +52,12 @@ const Inbox = () => {
       setSyncing(false);
     }
   };
+
+  // Auto-sync on mount
+  useEffect(() => {
+    handleGmailSync();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const { data: inquiries = [] } = useQuery({
     queryKey: QK.inquiries,

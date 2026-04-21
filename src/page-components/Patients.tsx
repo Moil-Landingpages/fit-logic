@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { QK } from "@/lib/queryKeys";
@@ -90,11 +91,20 @@ function exportToCSV(rows: Patient[], filename = "contacts.csv") {
 }
 
 const STATUS_MAP: Record<string, { label: string; color: string; dot: string }> = {
-  lead:     { label: "Lead",   color: "bg-blue-50 text-blue-700 border-blue-200",     dot: "bg-blue-500" },
-  client:   { label: "Client", color: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
-  active:   { label: "Active", color: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
-  inactive: { label: "Cold",   color: "bg-amber-50 text-amber-700 border-amber-200",  dot: "bg-amber-500" },
-  archived: { label: "Closed", color: "bg-muted text-muted-foreground border-border",  dot: "bg-muted-foreground" },
+  // Legacy lifecycle values
+  lead:        { label: "Lead",        color: "bg-blue-50 text-blue-700 border-blue-200",       dot: "bg-blue-500" },
+  client:      { label: "Client",      color: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
+  active:      { label: "Active",      color: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
+  inactive:    { label: "Cold",        color: "bg-amber-50 text-amber-700 border-amber-200",    dot: "bg-amber-500" },
+  archived:    { label: "Closed",      color: "bg-muted text-muted-foreground border-border",   dot: "bg-muted-foreground" },
+  // Pipeline stage values (stored in status column)
+  new_lead:    { label: "New Lead",    color: "bg-slate-100 text-slate-700 border-slate-200",   dot: "bg-slate-400" },
+  contacted:   { label: "Contacted",   color: "bg-blue-100 text-blue-700 border-blue-200",      dot: "bg-blue-400" },
+  qualified:   { label: "Qualified",   color: "bg-violet-100 text-violet-700 border-violet-200",dot: "bg-violet-400" },
+  proposal:    { label: "Proposal",    color: "bg-indigo-100 text-indigo-700 border-indigo-200",dot: "bg-indigo-400" },
+  negotiation: { label: "Negotiation", color: "bg-orange-100 text-orange-700 border-orange-200",dot: "bg-orange-400" },
+  won:         { label: "Won",         color: "bg-emerald-100 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
+  lost:        { label: "Lost",        color: "bg-red-100 text-red-700 border-red-200",         dot: "bg-red-400" },
 };
 
 const LEAD_SOURCE_MAP: Record<string, { label: string; color: string }> = {
@@ -169,6 +179,89 @@ function formatCurrency(value: number | null) {
   }).format(value);
 }
 
+const PREVIEW_LINES = 5;
+
+function CollapsibleBody({ text, bg }: { text: string; bg: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const lines = text.split("\n");
+  const isLong = lines.length > PREVIEW_LINES || text.length > 400;
+  const preview = isLong && !expanded ? lines.slice(0, PREVIEW_LINES).join("\n") : text;
+  return (
+    <div className={`rounded-lg border px-3 py-2.5 text-[11px] leading-relaxed text-foreground ${bg}`}>
+      <p className="whitespace-pre-wrap break-words">{preview}{isLong && !expanded ? "…" : ""}</p>
+      {isLong && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="mt-1.5 text-[10px] font-medium text-primary hover:underline"
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function MailThread({ inq, contactName }: { inq: any; contactName: string }) {
+  return (
+    <Card className="shadow-card overflow-hidden">
+      {/* Thread header */}
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border/50 bg-muted/30">
+        <span className="h-2 w-2 rounded-full bg-blue-400 shrink-0" />
+        <span className="text-xs font-semibold truncate flex-1">{inq.patient_name}</span>
+        <span className="text-[10px] text-muted-foreground shrink-0">{(() => {
+          const diff = Date.now() - new Date(inq.created_at).getTime();
+          const d = Math.floor(diff / 86400000);
+          return d === 0 ? "Today" : d === 1 ? "Yesterday" : d < 30 ? `${d}d ago` : new Date(inq.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        })()}</span>
+        {inq.category && (
+          <Badge variant="outline" className="text-[9px] shrink-0 capitalize">{inq.category.replace(/_/g, " ")}</Badge>
+        )}
+        <Badge className={`text-[9px] border-0 shrink-0 ${inq.status === "resolved" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+          {inq.status}
+        </Badge>
+      </div>
+
+      <div className="p-4 space-y-4">
+        {/* Inbound bubble */}
+        <div className="flex gap-3 items-start">
+          <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center shrink-0 text-[11px] font-bold text-muted-foreground mt-0.5">
+            {(inq.patient_name?.[0] ?? "?").toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-baseline gap-2 mb-1.5">
+              <span className="text-[12px] font-semibold">{inq.patient_name}</span>
+              {inq.patient_email && <span className="text-[10px] text-muted-foreground truncate">&lt;{inq.patient_email}&gt;</span>}
+            </div>
+            <CollapsibleBody text={inq.raw_content || "—"} bg="bg-muted/50 border-border/50" />
+          </div>
+        </div>
+
+        {/* Reply bubble */}
+        {inq.response_text && (
+          <div className="flex gap-3 items-start pl-2 border-l-2 border-primary/25">
+            <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+              <Mail className="h-3.5 w-3.5 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline gap-2 mb-1.5">
+                <span className="text-[12px] font-semibold text-primary">You</span>
+                {inq.resolved_at && (
+                  <span className="text-[10px] text-muted-foreground">{(() => {
+                    const diff = Date.now() - new Date(inq.resolved_at).getTime();
+                    const d = Math.floor(diff / 86400000);
+                    return d === 0 ? "Today" : d === 1 ? "Yesterday" : d < 30 ? `${d}d ago` : new Date(inq.resolved_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  })()}</span>
+                )}
+              </div>
+              <CollapsibleBody text={inq.response_text} bg="bg-primary/5 border-primary/15" />
+            </div>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 // Maps contact status tab keys to the DB status values they cover
 const STATUS_TAB_MAP: Record<string, string[]> = {
   leads:       ["new_lead", "lead"],
@@ -179,6 +272,10 @@ const STATUS_TAB_MAP: Record<string, string[]> = {
 
 export default function Patients() {
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const deepLinkId = searchParams.get("id");
+  const deepLinked = useRef(false);
   const saved = loadFilters();
   const [search, setSearch] = useState<string>(saved?.search ?? "");
   const [statusFilter, setStatusFilter] = useState<string>(saved?.statusFilter ?? "all");
@@ -241,6 +338,52 @@ export default function Patients() {
     }
   }, [patients, page]);
 
+  // Deep-link: open contact from ?id= param once patients load
+  useEffect(() => {
+    if (!deepLinkId || deepLinked.current || allPatients.length === 0) return;
+    const match = allPatients.find((p) => p.id === deepLinkId);
+    if (match) {
+      deepLinked.current = true;
+      setViewing(match);
+    }
+  }, [deepLinkId, allPatients]);
+
+  // Inbox inquiries for this contact (inbound emails + replies)
+  const { data: contactInquiries = [] } = useQuery({
+    queryKey: ["contact-inquiries", viewing?.id],
+    enabled: !!viewing,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("inquiries")
+        .select("id, raw_content, response_text, category, status, created_at, resolved_at, patient_name, patient_email")
+        .eq("patient_id", viewing!.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Mailing history query for detail view
+  const { data: contactMailLog = [] } = useQuery({
+    queryKey: ["contact-mail-log", viewing?.id],
+    enabled: !!viewing && !!viewing.email,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("campaign_send_log")
+        .select(`
+          id, step_number, status, sent_at, opened_at, clicked_at, error_message,
+          campaign_id, recipient_id,
+          campaign_recipients!inner(email, name, patient_id),
+          campaigns(name)
+        `)
+        .eq("campaign_recipients.patient_id", viewing!.id)
+        .order("sent_at", { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
   // Campaign participation query for detail view
   const { data: contactCampaigns = [] } = useQuery({
     queryKey: ["contact-campaigns", viewing?.id],
@@ -259,7 +402,8 @@ export default function Patients() {
   const parseTags = (t: string) => t ? t.split(",").map(s => s.trim()).filter(Boolean) : [];
 
   const patientPayload = (form: PatientFormData) => {
-    const stage = form.status || form.pipeline_stage || "new_lead";
+    // DB uses `status` as the pipeline stage column (e.g. "new_lead", "contacted", etc.)
+    const stage = form.pipeline_stage || form.status || "new_lead";
     return {
       first_name: form.first_name,
       last_name: form.last_name,
@@ -269,7 +413,6 @@ export default function Patients() {
       company: form.company || null,
       deal_value: form.deal_value ? Number(form.deal_value) : null,
       lead_source: form.lead_source || null,
-      pipeline_stage: stage,
       gender: (form as unknown as Record<string, unknown>).gender as string || null,
       address: form.address || null,
       city: form.city || null,
@@ -399,7 +542,7 @@ export default function Patients() {
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => { setViewing(null); setDetailTab("overview"); }} className="gap-1 text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" onClick={() => { setViewing(null); setDetailTab("overview"); router.replace("/contacts"); }} className="gap-1 text-muted-foreground hover:text-foreground">
             <ChevronLeft className="h-4 w-4" /> Contacts
           </Button>
         </div>
@@ -476,10 +619,11 @@ export default function Patients() {
 
         {/* Tabs */}
         <Tabs value={detailTab} onValueChange={setDetailTab}>
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
             <TabsTrigger value="campaigns">Campaigns ({contactCampaigns.length})</TabsTrigger>
+            <TabsTrigger value="mailing">Mailing ({contactInquiries.length + contactMailLog.length})</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="mt-4 space-y-4">
@@ -647,6 +791,78 @@ export default function Patients() {
                   </CardContent>
                 </Card>
               ))
+            )}
+          </TabsContent>
+
+          <TabsContent value="mailing" className="mt-4">
+            {contactInquiries.length === 0 && contactMailLog.length === 0 ? (
+              <Card className="shadow-card">
+                <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                  <Mail className="h-8 w-8 mb-2 opacity-40" />
+                  <p className="text-sm font-medium">No emails for this contact yet</p>
+                  <p className="text-xs mt-1">Inbound messages and campaign emails will appear here</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-6">
+                {/* ── Inbox threads ── */}
+                {contactInquiries.length > 0 && (
+                  <div className="space-y-3">
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-0.5">Inbox Threads</p>
+                    {contactInquiries.map((inq: any) => (
+                      <MailThread key={inq.id} inq={inq} contactName={p.first_name + " " + p.last_name} />
+                    ))}
+                  </div>
+                )}
+
+                {/* ── Campaign outbound emails ── */}
+                {contactMailLog.length > 0 && (() => {
+                  const grouped: Record<string, any[]> = {};
+                  contactMailLog.forEach((log: any) => {
+                    if (!grouped[log.campaign_id]) grouped[log.campaign_id] = [];
+                    grouped[log.campaign_id].push(log);
+                  });
+                  return (
+                    <div className="space-y-3">
+                      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-0.5">Campaign Emails</p>
+                      {Object.entries(grouped).map(([campaignId, logs]) => {
+                        const campaignName = (logs[0] as any)?.campaigns?.name || "Unknown Campaign";
+                        return (
+                          <Card key={campaignId} className="shadow-card">
+                            <CardHeader className="pb-2 pt-4">
+                              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                                <Mail className="h-4 w-4 text-primary shrink-0" />
+                                <span className="truncate">{campaignName}</span>
+                                <Badge variant="outline" className="text-[9px] ml-auto shrink-0">{logs.length} email{logs.length !== 1 ? 's' : ''}</Badge>
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="pt-0 divide-y divide-border/50">
+                              {logs.map((log: any) => (
+                                <div key={log.id} className="flex items-center justify-between py-2.5 gap-3">
+                                  <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                    <Badge variant="outline" className="text-[9px] font-mono shrink-0">Step {log.step_number ?? 1}</Badge>
+                                    <Badge className={`text-[9px] border-0 shrink-0 ${
+                                      log.status === 'sent' ? 'bg-primary/10 text-primary' :
+                                      log.status === 'failed' ? 'bg-destructive/10 text-destructive' :
+                                      'bg-muted text-muted-foreground'
+                                    }`}>{log.status}</Badge>
+                                    {log.opened_at && <Badge variant="secondary" className="text-[9px] bg-emerald-50 text-emerald-700 shrink-0">Opened</Badge>}
+                                    {log.clicked_at && <Badge variant="secondary" className="text-[9px] bg-blue-50 text-blue-700 shrink-0">Clicked</Badge>}
+                                    {log.error_message && <span className="text-[10px] text-destructive truncate max-w-[120px]">{log.error_message}</span>}
+                                  </div>
+                                  <span className="text-[10px] text-muted-foreground shrink-0">
+                                    {log.sent_at ? relativeDate(log.sent_at) : '—'}
+                                  </span>
+                                </div>
+                              ))}
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
             )}
           </TabsContent>
         </Tabs>
