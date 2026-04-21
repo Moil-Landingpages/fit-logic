@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serverClient } from "@/lib/supabase";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-let sb = serverClient();
+// Lazy — assigned inside POST handler. Do NOT call serverClient() at module top-level
+// (breaks Next.js build env injection during route data collection).
+let sb: SupabaseClient;
 
 async function suppress(email: string, reason: string, campaignId?: string) {
   await sb.from("email_suppressions").upsert(
