@@ -42,11 +42,14 @@ interface AISequenceWizardProps {
 type WizardStep = "goal" | "details" | "generating" | "review";
 
 const GOAL_EXAMPLES = [
-  "Re-engage leads who signed up but never booked a call",
-  "Welcome new customers and onboard them to our platform",
-  "Promote our upcoming workshop to past attendees",
-  "Cold outreach to prospects in the real estate industry",
-  "Follow up with people who downloaded our free guide",
+  "Welcome new leads and guide them toward their first consultation at Fit Logic",
+  "Re-engage cold leads who inquired about BHRT but never booked",
+  "Nurture contacts interested in hormone optimization through an educational sequence",
+  "Promote an upcoming wellness retreat to past and active patients",
+  "Follow up with patients who completed a gut health consultation",
+  "Educate new leads about functional medicine and how Fit Logic is different",
+  "Re-activate former patients who haven't visited in 3+ months",
+  "Convert qualified leads into membership plan subscribers",
 ];
 
 export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AISequenceWizardProps) {

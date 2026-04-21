@@ -77,6 +77,12 @@ Generate ${count} emails that build a cohesive sequence:
 
 Keep subject lines 6-10 words. Keep each email distinct, helpful, and easy to reply to.
 
+PERSONALIZATION (required):
+- Always open the greeting with the recipient's first name using the variable {first_name} — e.g. "Hi {first_name}," or "Hey {first_name},"
+- You may also use {first_name} once more naturally inside the body when it genuinely adds warmth.
+- Do NOT use {name}, {last_name}, or any other variable — only {first_name}.
+- These variables are substituted automatically at send time, so always include them in the generated HTML.
+
 ${TEXT_STYLE_FORMAT}
 
 Suggest optimal timing and the best matching audience segment.`
@@ -104,6 +110,12 @@ You MUST use the generate_campaign tool to return your response. Generate compel
 - Suggest the best matching segment from the available ones when possible
 - Suggest optimal send timing based on the campaign type
 - Match the message to the most relevant Fit Logic service, audience need, or lifecycle moment
+
+PERSONALIZATION (required):
+- Always open the greeting with the recipient's first name using the variable {first_name} — e.g. "Hi {first_name}," or "Hey {first_name},"
+- You may also use {first_name} once more naturally inside the body when it genuinely adds warmth.
+- Do NOT use {name}, {last_name}, or any other variable — only {first_name}.
+- These variables are substituted automatically at send time, so always include them in the generated HTML.
 
 EMAIL BODY FORMAT — choose based on the category you select:
 - If category is "welcome" or "promotional" (recipient opted in, expects branding):

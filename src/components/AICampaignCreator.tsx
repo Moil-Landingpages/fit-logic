@@ -32,10 +32,12 @@ interface AICampaignCreatorProps {
 }
 
 const EXAMPLE_PROMPTS = [
-  "Re-engage leads who haven't responded in 2 weeks with a value offer",
-  "Welcome new customers with an intro to our services and a booking CTA",
-  "Promote our upcoming workshop to past attendees",
-  "Send a follow-up to contacts who completed a form this week",
+  "Announce our next wellness retreat and invite past patients to register",
+  "Introduce Fit Logic's BHRT program to new leads concerned about hormonal imbalance",
+  "Send a follow-up to contacts who completed a gut health intake form",
+  "Promote our supplement line to active patients with a limited-time offer",
+  "Re-engage cold leads with an educational email on functional medicine benefits",
+  "Invite corporate wellness contacts to explore our group membership plans",
 ];
 
 type CreatorStep = "prompt" | "review" | "preview";
