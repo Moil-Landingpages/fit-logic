@@ -225,17 +225,34 @@ export async function POST(req: NextRequest) {
         }
 
         // Variable substitution: {first_name}, {last_name}, {name}, {email}, {company}
-        const nameParts = (recipient.name ?? "").trim().split(/\s+/);
-        const firstName = nameParts[0] || recipient.name || "";
-        const lastName = nameParts.slice(1).join(" ") || "";
-        const fullName = recipient.name || recipient.email;
+        // Prefer first_name/last_name columns from patients table when patient_id is available
+        let firstName = "";
+        let lastName = "";
+        if (recipient.patient_id) {
+          const { data: patient } = await supabase
+            .from("patients")
+            .select("first_name, last_name")
+            .eq("id", recipient.patient_id)
+            .maybeSingle();
+          if (patient) {
+            firstName = patient.first_name ?? "";
+            lastName = patient.last_name ?? "";
+          }
+        }
+        // Fall back to splitting the stored name if patient lookup gave nothing
+        if (!firstName) {
+          const nameParts = (recipient.name ?? "").trim().split(/\s+/);
+          firstName = nameParts[0] || "";
+          lastName = nameParts.slice(1).join(" ") || "";
+        }
+        const fullName = [firstName, lastName].filter(Boolean).join(" ") || recipient.name || recipient.email;
+        // Only replace a variable if we have a real value — otherwise leave the placeholder as-is
         const applyVars = (str: string) =>
           str
-            .replace(/\{first_name\}/gi, firstName)
-            .replace(/\{last_name\}/gi, lastName)
+            .replace(/\{first_name\}/gi, firstName || "{first_name}")
+            .replace(/\{last_name\}/gi, lastName || "{last_name}")
             .replace(/\{name\}/gi, fullName)
-            .replace(/\{email\}/gi, recipient.email)
-            .replace(/\{company\}/gi, "");  // company not on recipient row — leave blank
+            .replace(/\{email\}/gi, recipient.email);
 
         subject = applyVars(subject);
         bodyHtml = applyVars(bodyHtml);
