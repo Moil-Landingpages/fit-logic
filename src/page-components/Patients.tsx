@@ -418,7 +418,7 @@ export default function Patients() {
       city: form.city || null,
       state: form.state || null,
       zip_code: form.zip_code || null,
-      status: stage,
+      status: form.status || "active",
       tags: parseTags(form.tags),
       notes: form.notes || null,
     };
