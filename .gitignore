@@ -37,6 +37,7 @@ next-env.d.ts
 
 # next.js
 /.next/
+/.next-dist-check/
 /out/
 
 # production
