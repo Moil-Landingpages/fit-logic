@@ -259,7 +259,6 @@ export default function Patients() {
   const parseTags = (t: string) => t ? t.split(",").map(s => s.trim()).filter(Boolean) : [];
 
   const patientPayload = (form: PatientFormData) => {
-    const stage = form.status || form.pipeline_stage || "new_lead";
     return {
       first_name: form.first_name,
       last_name: form.last_name,
@@ -269,13 +268,13 @@ export default function Patients() {
       company: form.company || null,
       deal_value: form.deal_value ? Number(form.deal_value) : null,
       lead_source: form.lead_source || null,
-      pipeline_stage: stage,
+      pipeline_stage: form.pipeline_stage || "new_lead",
       gender: (form as unknown as Record<string, unknown>).gender as string || null,
       address: form.address || null,
       city: form.city || null,
       state: form.state || null,
       zip_code: form.zip_code || null,
-      status: stage,
+      status: form.status || "active",
       tags: parseTags(form.tags),
       notes: form.notes || null,
     };
