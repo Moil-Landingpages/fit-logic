@@ -120,6 +120,7 @@ Mutations call `queryClient.invalidateQueries(...)` on success to sync the UI. D
 | `referrals` | Referral conversion tracking |
 | `staff` | Staff accounts; escalation_staff_id FK in practice_settings |
 | `audit_log` | HIPAA compliance log (trigger on patients) |
+| `notifications` | In-app notifications (new leads, sync summaries); read by `NotificationBell` in the Layout header |
 
 Email provider API key is stored in `practice_settings.email_provider_api_key` with optional Supabase Vault encryption via `get_email_api_key()` DB function (migration `20260407000002`).
 
@@ -135,6 +136,9 @@ Email provider API key is stored in `practice_settings.email_provider_api_key` w
 | `generate-campaign` | AI-generates multi-step email sequences |
 | `generate-faq-answer` | AI-generates FAQ answers |
 | `google-oauth-callback` | Exchanges Google OAuth code for tokens; stores in practice_settings |
+| `sync-gmail` | Pulls new Gmail inbox messages, matches to contacts, inserts them into `inquiries`, and writes a `notifications` row summarizing the sync |
+| `send-inquiry-reply` | Sends a manual staff reply to an inquiry via the configured email provider |
+| `cron/schedule` | Cron entrypoint for scheduled campaign/queue work |
 
 ### Heaviest Page Components (`src/page-components/`)
 

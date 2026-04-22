@@ -151,6 +151,18 @@ export async function POST() {
     if (insertErr) throw insertErr;
 
     const contactsMatched = toInsert.filter((e) => e.patient).length;
+
+    if (rows.length > 0) {
+      await sb.from("notifications").insert({
+        type: "sync_complete",
+        title: `${rows.length} new inquiry${rows.length === 1 ? "" : "s"} synced from Gmail`,
+        message: contactsMatched
+          ? `${contactsMatched} matched an existing contact.`
+          : null,
+        link: "/inbox",
+      } as never);
+    }
+
     return NextResponse.json({ synced: rows.length, contacts_matched: contactsMatched, unknown_senders: rows.length - contactsMatched });
   } catch (err) {
     console.error("sync-gmail error:", err);

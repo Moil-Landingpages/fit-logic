@@ -5,6 +5,7 @@ import { useTheme } from "next-themes";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
+import { NotificationBell } from "@/components/NotificationBell";
 import { useAuth } from "@/contexts/AuthContext";
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -28,6 +29,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   {user.email}
                 </span>
               )}
+              <NotificationBell />
               <Button
                 variant="ghost"
                 size="icon"

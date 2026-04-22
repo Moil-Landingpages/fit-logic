@@ -18,4 +18,5 @@ export const QK = {
   staff:              ["staff"]              as const,
   settings:           ["settings"]           as const,
   suppressions:       ["email_suppressions"] as const,
+  notifications:      ["notifications"]      as const,
 } as const;
