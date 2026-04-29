@@ -94,6 +94,39 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CHUNK_SIZE = 50;
 const FULL_NAME_HEADERS = new Set(["name", "full name", "fullname", "contact name"]);
 
+const VALID_PIPELINE_STAGES = new Set([
+  "new_lead", "contacted", "qualified", "proposal", "negotiation", "won", "lost",
+]);
+const PIPELINE_STAGE_SYNONYMS: Record<string, string> = {
+  new: "new_lead",
+  lead: "new_lead",
+  cold: "new_lead",
+  cold_lead: "new_lead",
+  prospect: "new_lead",
+  warm: "contacted",
+  engaged: "contacted",
+  reached_out: "contacted",
+  mql: "qualified",
+  sql: "qualified",
+  qualifying: "qualified",
+  quoted: "proposal",
+  proposed: "proposal",
+  negotiating: "negotiation",
+  closed_won: "won",
+  client: "won",
+  customer: "won",
+  closed_lost: "lost",
+  rejected: "lost",
+};
+
+function normalizePipelineStage(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const snake = value.toLowerCase().trim().replace(/[\s-]+/g, "_");
+  if (!snake) return null;
+  if (VALID_PIPELINE_STAGES.has(snake)) return snake;
+  return PIPELINE_STAGE_SYNONYMS[snake] ?? null;
+}
+
 interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -219,6 +252,9 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
         if (!Number.isNaN(numericValue)) rec.deal_value = numericValue;
       } else if (dbField === "zip") {
         rec["zip_code"] = raw;
+      } else if (dbField === "pipeline_stage") {
+        const normalized = normalizePipelineStage(raw);
+        if (normalized) rec.pipeline_stage = normalized;
       } else if (dbField === "first_name" && FULL_NAME_HEADERS.has(header) && !hasLastNameColumn) {
         const { firstName, lastName } = splitFullName(raw);
         if (firstName) rec.first_name = firstName;
