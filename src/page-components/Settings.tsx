@@ -412,7 +412,7 @@ function IntegrationsTab({
 
   const handleGoogleConnect = () => {
     const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
-    const redirectUri = `${window.location.origin}/settings?tab=integrations`;
+    const redirectUri = `${window.location.origin}/settings`;
     const scope = encodeURIComponent(
       "https://www.googleapis.com/auth/calendar.readonly " +
       "https://www.googleapis.com/auth/gmail.send " +
@@ -648,13 +648,12 @@ const Settings = () => {
     const code = params.get("code");
     const tab  = params.get("tab");
 
-    if (code && tab === "integrations") {
-      // Clean URL immediately so a refresh doesn't re-trigger
+    if (code) {
       window.history.replaceState({}, "", window.location.pathname + "?tab=integrations");
       setActiveTab("integrations");
       setOauthLoading(true);
 
-      const redirectUri = `${window.location.origin}/settings?tab=integrations`;
+      const redirectUri = `${window.location.origin}/settings`;
 
       fetch("/api/google-oauth-callback", {
         method: "POST",
