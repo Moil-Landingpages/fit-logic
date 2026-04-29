@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Sparkles, Loader2, Check, Lightbulb, Clock, Users, ChevronDown, ChevronUp, ShieldCheck, Palette, ArrowLeft, ArrowRight, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,13 +42,49 @@ const EXAMPLE_PROMPTS = [
 
 type CreatorStep = "prompt" | "review" | "preview";
 
+const DRAFT_STORAGE_KEY = "ai-campaign-creator-draft";
+
+interface PersistedDraft {
+  step: CreatorStep;
+  prompt: string;
+  result: AICampaignResult | null;
+}
+
 export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AICampaignCreatorProps) {
   const [step, setStep] = useState<CreatorStep>("prompt");
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState<AICampaignResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showEditFields, setShowEditFields] = useState(false);
+  const [showEditFields, setShowEditFields] = useState(true);
+
+  useEffect(() => {
+    if (!open) return;
+    try {
+      const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw) as PersistedDraft;
+      if (draft.prompt) setPrompt(draft.prompt);
+      if (draft.result) setResult(draft.result);
+      if (draft.step) setStep(draft.step);
+    } catch {
+      // ignore malformed draft
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!prompt && !result) {
+      localStorage.removeItem(DRAFT_STORAGE_KEY);
+      return;
+    }
+    const draft: PersistedDraft = { step, prompt, result };
+    try {
+      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+    } catch {
+      // ignore quota errors
+    }
+  }, [open, step, prompt, result]);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
@@ -90,12 +126,13 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
     setPrompt("");
     setResult(null);
     setError(null);
-    setShowEditFields(false);
+    setShowEditFields(true);
+    localStorage.removeItem(DRAFT_STORAGE_KEY);
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) handleReset(); onOpenChange(v); }}>
-      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl h-[92vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-primary" />
@@ -237,7 +274,7 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
                       <Textarea
                         value={result.bodyHtml}
                         onChange={e => setResult({ ...result, bodyHtml: e.target.value })}
-                        className="mt-1 text-sm font-mono min-h-[200px]"
+                        className="mt-1 text-sm font-mono min-h-[320px]"
                       />
                     </div>
                   </div>
