@@ -7,9 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { DialogFooter } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
-import { User, Mail, Building2, MapPin, Tag, StickyNote, TrendingUp } from "lucide-react";
+import { User, Mail, Building2, MapPin, Tag, StickyNote, TrendingUp, FlaskConical } from "lucide-react";
+import { useLeadSources } from "@/hooks/use-lead-sources";
 
 export interface PatientFormData {
   first_name: string;
@@ -28,6 +30,7 @@ export interface PatientFormData {
   zip_code: string;
   tags: string;
   notes: string;
+  is_test_contact: boolean;
 }
 
 interface PatientFormProps {
@@ -105,7 +108,7 @@ export function PatientForm({ defaultValues, onSubmit, onCancel, isSubmitting }:
       first_name: "", last_name: "", email: "", phone: "", date_of_birth: "",
       company: "", deal_value: "", lead_source: "", pipeline_stage: "new_lead",
       status: "active", address: "", city: "", state: "", zip_code: "",
-      tags: "", notes: "",
+      tags: "", notes: "", is_test_contact: false,
       ...defaultValues,
     },
   });
@@ -121,6 +124,21 @@ export function PatientForm({ defaultValues, onSubmit, onCancel, isSubmitting }:
   const lead_source = watch("lead_source");
   const pipeline_stage = watch("pipeline_stage");
   const status = watch("status");
+  const is_test_contact = watch("is_test_contact");
+
+  // A1.3: lead-source dropdown is sourced from the lead_sources table so
+  // Megan can add custom values from Settings. Selecting "Other" reveals a
+  // free-text input that overrides the stored value.
+  const { data: leadSourceOptions = [] } = useLeadSources();
+  const knownLabels = new Set(leadSourceOptions.map((s) => s.label));
+  // Determine the dropdown selection: a known label, "Other" (when value is
+  // present but not in the list — i.e. a previously custom value), or "" empty.
+  const dropdownValue = !lead_source
+    ? ""
+    : knownLabels.has(lead_source)
+      ? lead_source
+      : "Other";
+  const showCustomLeadSource = dropdownValue === "Other";
 
   const handleDialCodeChange = (code: string) => {
     setDialCode(code);
@@ -245,17 +263,32 @@ export function PatientForm({ defaultValues, onSubmit, onCancel, isSubmitting }:
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs">Lead Source</Label>
-            <Select value={lead_source} onValueChange={(v) => setValue("lead_source", v)}>
+            <Select
+              value={dropdownValue}
+              onValueChange={(v) => {
+                if (v === "Other") {
+                  // Preserve any prior custom value; otherwise blank the input.
+                  if (knownLabels.has(lead_source ?? "")) setValue("lead_source", "");
+                } else {
+                  setValue("lead_source", v);
+                }
+              }}
+            >
               <SelectTrigger className="h-9"><SelectValue placeholder="Select source" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="referral">Referral</SelectItem>
-                <SelectItem value="cold-outreach">Cold Outreach</SelectItem>
-                <SelectItem value="inbound">Inbound</SelectItem>
-                <SelectItem value="event">Event</SelectItem>
-                <SelectItem value="social">Social Media</SelectItem>
-                <SelectItem value="other">Other</SelectItem>
+                {leadSourceOptions.map((s) => (
+                  <SelectItem key={s.id} value={s.label}>{s.label}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
+            {showCustomLeadSource && (
+              <Input
+                value={lead_source ?? ""}
+                onChange={(e) => setValue("lead_source", e.target.value)}
+                placeholder="Enter custom lead source"
+                className="h-9 mt-1.5"
+              />
+            )}
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Status</Label>
@@ -323,6 +356,24 @@ export function PatientForm({ defaultValues, onSubmit, onCancel, isSubmitting }:
           </div>
           <Textarea {...register("notes")} placeholder="Meeting notes, deal details, next steps..." rows={3} />
         </div>
+      </div>
+
+      <Separator />
+
+      {/* Test contact (used by Phase 1 send guardrail while practice is on the
+          shared API key). Sends to non-test contacts are skipped at the queue
+          route until practice_settings.test_mode_only is flipped off. */}
+      <div className="flex items-center justify-between rounded-lg border p-3 bg-muted/20">
+        <div className="flex items-start gap-2">
+          <FlaskConical className="h-4 w-4 text-muted-foreground mt-0.5" />
+          <div>
+            <p className="text-xs font-medium text-foreground">Test contact</p>
+            <p className="text-[10px] text-muted-foreground">
+              While the practice is on the shared API key, only contacts flagged here will receive campaign emails.
+            </p>
+          </div>
+        </div>
+        <Switch checked={!!is_test_contact} onCheckedChange={(v) => setValue("is_test_contact", v)} />
       </div>
 
       <DialogFooter className="pt-4 sticky bottom-0 bg-background pb-1">

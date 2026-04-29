@@ -9,7 +9,7 @@ import { toast } from "@/hooks/use-toast";
 import {
   Users, Plus, Search, MoreHorizontal, Mail, Building2,
   Eye, Pencil, Trash2, ChevronLeft, ArrowUpDown, Tag, StickyNote,
-  TrendingUp, Send, X, Filter, Upload, Download,
+  TrendingUp, Send, X, Filter, Upload, Download, Clock, FlaskConical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,6 +56,8 @@ type Patient = {
   status: string;
   tags: string[] | null;
   notes: string | null;
+  is_test_contact: boolean | null;
+  last_contacted_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -281,7 +283,8 @@ export default function Patients() {
   const [statusFilter, setStatusFilter] = useState<string>(saved?.statusFilter ?? "all");
   const [stageFilter, setStageFilter] = useState<string>(saved?.stageFilter ?? "all");
   const [sourceFilter, setSourceFilter] = useState<string>(saved?.sourceFilter ?? "all");
-  const [sortBy, setSortBy] = useState<"newest" | "name" | "company" | "deal_value">(saved?.sortBy ?? "newest");
+  const [sortBy, setSortBy] = useState<"newest" | "name" | "company" | "deal_value" | "last_contacted_oldest" | "last_contacted_newest">(saved?.sortBy ?? "newest");
+  const [contactFilter, setContactFilter] = useState<"all" | "never" | "30d">(saved?.contactFilter ?? "all");
   const [showFilters, setShowFilters] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -294,13 +297,13 @@ export default function Patients() {
 
   // Persist filters to sessionStorage
   useEffect(() => {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ search, statusFilter, stageFilter, sourceFilter, sortBy }));
-  }, [search, statusFilter, stageFilter, sourceFilter, sortBy]);
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ search, statusFilter, stageFilter, sourceFilter, sortBy, contactFilter }));
+  }, [search, statusFilter, stageFilter, sourceFilter, sortBy, contactFilter]);
 
-  const hasActiveFilters = search || statusFilter !== "all" || stageFilter !== "all" || sourceFilter !== "all";
+  const hasActiveFilters = search || statusFilter !== "all" || stageFilter !== "all" || sourceFilter !== "all" || contactFilter !== "all";
 
   const clearFilters = () => {
-    setSearch(""); setStatusFilter("all"); setStageFilter("all"); setSourceFilter("all"); setSortBy("newest");
+    setSearch(""); setStatusFilter("all"); setStageFilter("all"); setSourceFilter("all"); setSortBy("newest"); setContactFilter("all");
   };
 
   const PAGE_SIZE = 500;
@@ -402,8 +405,10 @@ export default function Patients() {
   const parseTags = (t: string) => t ? t.split(",").map(s => s.trim()).filter(Boolean) : [];
 
   const patientPayload = (form: PatientFormData) => {
-    // DB uses `status` as the pipeline stage column (e.g. "new_lead", "contacted", etc.)
-    const stage = form.pipeline_stage || form.status || "new_lead";
+    // patients.status   = account status (active/inactive/archived)
+    // patients.pipeline_stage = deal stage (new_lead/contacted/qualified/...)
+    // The two are separate columns — see migration 20260406000001 for the
+    // pipeline_stage CHECK constraint.
     return {
       first_name: form.first_name,
       last_name: form.last_name,
@@ -419,6 +424,8 @@ export default function Patients() {
       state: form.state || null,
       zip_code: form.zip_code || null,
       status: form.status || "active",
+      pipeline_stage: form.pipeline_stage || "new_lead",
+      is_test_contact: !!form.is_test_contact,
       tags: parseTags(form.tags),
       notes: form.notes || null,
     };
@@ -520,6 +527,12 @@ export default function Patients() {
     }
     if (stageFilter !== "all") result = result.filter(p => p.pipeline_stage === stageFilter);
     if (sourceFilter !== "all") result = result.filter(p => p.lead_source === sourceFilter);
+    if (contactFilter === "never") {
+      result = result.filter(p => !p.last_contacted_at);
+    } else if (contactFilter === "30d") {
+      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      result = result.filter(p => !p.last_contacted_at || new Date(p.last_contacted_at).getTime() < thirtyDaysAgo);
+    }
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(p =>
@@ -532,8 +545,23 @@ export default function Patients() {
     if (sortBy === "name") result = [...result].sort((a, b) => a.first_name.localeCompare(b.first_name));
     else if (sortBy === "company") result = [...result].sort((a, b) => (a.company || "").localeCompare(b.company || ""));
     else if (sortBy === "deal_value") result = [...result].sort((a, b) => (b.deal_value || 0) - (a.deal_value || 0));
+    else if (sortBy === "last_contacted_oldest") {
+      // NULL last_contacted_at = "never contacted" — surface to the top so
+      // Megan picks them first in her daily 10-contact pull.
+      result = [...result].sort((a, b) => {
+        const aT = a.last_contacted_at ? new Date(a.last_contacted_at).getTime() : -Infinity;
+        const bT = b.last_contacted_at ? new Date(b.last_contacted_at).getTime() : -Infinity;
+        return aT - bT;
+      });
+    } else if (sortBy === "last_contacted_newest") {
+      result = [...result].sort((a, b) => {
+        const aT = a.last_contacted_at ? new Date(a.last_contacted_at).getTime() : -Infinity;
+        const bT = b.last_contacted_at ? new Date(b.last_contacted_at).getTime() : -Infinity;
+        return bT - aT;
+      });
+    }
     return result;
-  }, [allPatients, statusFilter, stageFilter, sourceFilter, search, sortBy]);
+  }, [allPatients, statusFilter, stageFilter, sourceFilter, search, sortBy, contactFilter]);
 
   // ─── DETAIL VIEW ───
   if (viewing) {
@@ -558,10 +586,27 @@ export default function Patients() {
               <h1 className="font-heading text-2xl font-bold text-foreground">
                 {p.first_name} {p.last_name}
               </h1>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <StatusPill status={p.status} />
                 <Badge variant="outline">{PIPELINE_STAGE_LABELS[p.pipeline_stage] ?? p.pipeline_stage}</Badge>
                 <LeadSourceBadge source={p.lead_source} />
+                {p.is_test_contact && (
+                  <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-100/40">
+                    <FlaskConical className="h-3 w-3 mr-1" /> Test
+                  </Badge>
+                )}
+                {p.last_contacted_at && (
+                  <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    Last contact {new Date(p.last_contacted_at).toLocaleDateString()}
+                  </span>
+                )}
+                {!p.last_contacted_at && (
+                  <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    Never contacted
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -908,6 +953,7 @@ export default function Patients() {
                 state: editing.state || "", zip_code: editing.zip_code || "",
                 status: editing.status, tags: (editing.tags || []).join(", "),
                 notes: editing.notes || "",
+                is_test_contact: !!editing.is_test_contact,
               } : undefined}
               onSubmit={(data) => editing ? updateMutation.mutate({ id: editing.id, form: data }) : addMutation.mutate(data)}
               onCancel={() => { setFormOpen(false); setEditing(null); }}
@@ -990,7 +1036,12 @@ export default function Patients() {
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="gap-1.5 h-9">
                 <ArrowUpDown className="h-3.5 w-3.5" />
-                {sortBy === "newest" ? "Newest" : sortBy === "name" ? "Name" : sortBy === "company" ? "Company" : "Deal Value"}
+                {sortBy === "newest" ? "Newest"
+                  : sortBy === "name" ? "Name"
+                  : sortBy === "company" ? "Company"
+                  : sortBy === "deal_value" ? "Deal Value"
+                  : sortBy === "last_contacted_oldest" ? "Oldest contact"
+                  : "Newest contact"}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -998,6 +1049,29 @@ export default function Patients() {
               <DropdownMenuItem onClick={() => setSortBy("name")}>By Name</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setSortBy("company")}>By Company</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setSortBy("deal_value")}>By Deal Value</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSortBy("last_contacted_oldest")}>Last Contacted (oldest first)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSortBy("last_contacted_newest")}>Last Contacted (newest first)</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Last-contacted quick-filter chip (A1.4) */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant={contactFilter !== "all" ? "secondary" : "outline"}
+                size="sm"
+                className="gap-1.5 h-9"
+              >
+                <Clock className="h-3.5 w-3.5" />
+                {contactFilter === "never" ? "Never contacted"
+                  : contactFilter === "30d" ? "Not in 30d"
+                  : "Any contact recency"}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setContactFilter("all")}>All contacts</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setContactFilter("never")}>Never contacted</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setContactFilter("30d")}>Not contacted in 30 days</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -1244,6 +1318,7 @@ export default function Patients() {
               state: editing.state || "", zip_code: editing.zip_code || "",
               status: editing.status, tags: (editing.tags || []).join(", "),
               notes: editing.notes || "",
+              is_test_contact: !!editing.is_test_contact,
             } : undefined}
             onSubmit={(data) => editing ? updateMutation.mutate({ id: editing.id, form: data }) : addMutation.mutate(data)}
             onCancel={() => { setFormOpen(false); setEditing(null); }}

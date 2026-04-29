@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { QK } from "@/lib/queryKeys";
@@ -224,10 +224,20 @@ export default function Analytics() {
     };
   }, [patients]);
 
+  // A1.3: lead-source card has a local date-range chip so Megan can answer
+  // "how many leads came in from each source in the last 30 / 90 days."
+  // Custom values added in Settings flow through here verbatim — we no longer
+  // try to map them to a fixed label dictionary.
+  const [leadSourceRange, setLeadSourceRange] = useState<"30d" | "90d" | "all">("90d");
+
   const leadSources = useMemo(() => {
+    const cutoff = leadSourceRange === "all" ? 0
+      : leadSourceRange === "30d" ? Date.now() - 30 * 24 * 60 * 60 * 1000
+      : Date.now() - 90 * 24 * 60 * 60 * 1000;
     const counts: Record<string, number> = {};
     for (const patient of patients) {
-      const source = patient.lead_source ?? "other";
+      if (cutoff && new Date(patient.created_at).getTime() < cutoff) continue;
+      const source = patient.lead_source ?? "Unknown";
       counts[source] = (counts[source] ?? 0) + 1;
     }
 
@@ -238,7 +248,7 @@ export default function Analytics() {
         source: LEAD_SOURCE_LABELS[source] ?? source,
         count,
       }));
-  }, [patients]);
+  }, [patients, leadSourceRange]);
 
   const emailKpis = useMemo(() => {
     const total = sendLog.length;
@@ -381,8 +391,27 @@ export default function Analytics() {
 
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Lead Sources</CardTitle>
-                <CardDescription>Where contacts are coming from</CardDescription>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-sm">Lead Sources</CardTitle>
+                    <CardDescription>Where contacts are coming from</CardDescription>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    {(["30d", "90d", "all"] as const).map((r) => (
+                      <button
+                        key={r}
+                        onClick={() => setLeadSourceRange(r)}
+                        className={`text-[10px] rounded-full border px-2 py-0.5 transition-colors ${
+                          leadSourceRange === r
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-background text-muted-foreground border-border hover:bg-muted"
+                        }`}
+                      >
+                        {r === "all" ? "All time" : `Last ${r}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 {leadSources.length > 0 ? (
@@ -390,13 +419,13 @@ export default function Analytics() {
                     <BarChart data={leadSources} layout="vertical" margin={{ left: 8, right: 8 }}>
                       <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                       <XAxis type="number" tick={{ fontSize: 11 }} />
-                      <YAxis type="category" dataKey="source" tick={{ fontSize: 11 }} width={100} />
+                      <YAxis type="category" dataKey="source" tick={{ fontSize: 11 }} width={140} />
                       <Tooltip />
                       <Bar dataKey="count" fill="#2563eb" radius={[0, 4, 4, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
-                  <p className="py-8 text-center text-sm text-muted-foreground">No source data yet</p>
+                  <p className="py-8 text-center text-sm text-muted-foreground">No source data in the selected range</p>
                 )}
               </CardContent>
             </Card>

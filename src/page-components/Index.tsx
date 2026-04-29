@@ -39,6 +39,7 @@ type ContactRow = {
   last_name: string;
   email: string | null;
   status: string;
+  pipeline_stage: string | null;
   created_at: string;
 };
 
@@ -379,10 +380,10 @@ const Index = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("patients")
-        .select("id, first_name, last_name, email, status, created_at")
+        .select("id, first_name, last_name, email, status, pipeline_stage, created_at")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as ContactRow[];
+      return ((data ?? []) as unknown) as ContactRow[];
     },
     refetchOnMount: true,
     staleTime: 0,
@@ -420,11 +421,18 @@ const Index = () => {
     },
   });
 
-  // Move contact to a new pipeline stage
+  // Move contact to a new pipeline stage. The kanban used to write to
+  // patients.status, which is the account status (active/inactive/archived) and
+  // a separate column from pipeline_stage. The bug surfaced as "I dragged the
+  // card to Won but the contact record still shows the old stage" because the
+  // contact view reads pipeline_stage, not status. Writing to pipeline_stage
+  // makes both views agree.
   const stageMutation = useMutation({
     mutationFn: async ({ id, stage }: { id: string; stage: string }) => {
       const { error } = await supabase
-        .from("patients").update({ status: stage }).eq("id", id);
+        .from("patients")
+        .update({ pipeline_stage: stage } as never)
+        .eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: QK.patients }),
@@ -435,7 +443,10 @@ const Index = () => {
 
   const moveToStageMutation = useMutation({
     mutationFn: async ({ id, stage }: { id: string; stage: string }) => {
-      const { error } = await supabase.from("patients").update({ status: stage }).eq("id", id);
+      const { error } = await supabase
+        .from("patients")
+        .update({ pipeline_stage: stage } as never)
+        .eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -457,14 +468,14 @@ const Index = () => {
   const handleDrop = (targetStage: string) => {
     if (!draggingId || !targetStage) return;
     const contact = contacts.find((c) => c.id === draggingId);
-    if (!contact || toStage(contact.status) === targetStage) { setDraggingId(null); return; }
+    if (!contact || toStage(contact.pipeline_stage ?? "") === targetStage) { setDraggingId(null); return; }
     stageMutation.mutate({ id: draggingId, stage: targetStage });
     setDraggingId(null);
   };
 
   // Group contacts by stage — every contact lands in exactly one column
   const byStage = Object.fromEntries(
-    PIPELINE_STAGES.map((s) => [s.key, contacts.filter((c) => toStage(c.status) === s.key)])
+    PIPELINE_STAGES.map((s) => [s.key, contacts.filter((c) => toStage(c.pipeline_stage ?? "") === s.key)])
   ) as Record<PipelineStage, ContactRow[]>;
 
   // KPIs
@@ -753,7 +764,7 @@ const Index = () => {
             />
             <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
               {contacts
-                .filter((c) => c.status !== addContactStage)
+                .filter((c) => (c.pipeline_stage ?? "") !== addContactStage)
                 .filter((c) => {
                   const q = pickerSearch.toLowerCase();
                   return (
@@ -777,14 +788,14 @@ const Index = () => {
                       {c.email && <p className="text-xs text-muted-foreground truncate">{c.email}</p>}
                     </div>
                     <span className="ml-auto shrink-0 text-[10px] text-muted-foreground border rounded-full px-2 py-0.5">
-                      {PIPELINE_STAGES.find((s) => s.key === c.status)?.label ?? c.status}
+                      {PIPELINE_STAGES.find((s) => s.key === c.pipeline_stage)?.label ?? c.pipeline_stage ?? "—"}
                     </span>
                   </button>
                 ))}
-              {contacts.filter((c) => c.status !== addContactStage).length === 0 && (
+              {contacts.filter((c) => (c.pipeline_stage ?? "") !== addContactStage).length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-6">All contacts are already in this stage</p>
               )}
-              {contacts.filter((c) => c.status !== addContactStage).filter((c) => {
+              {contacts.filter((c) => (c.pipeline_stage ?? "") !== addContactStage).filter((c) => {
                 const q = pickerSearch.toLowerCase();
                 return !q || `${c.first_name} ${c.last_name}`.toLowerCase().includes(q) || (c.email ?? "").toLowerCase().includes(q);
               }).length === 0 && pickerSearch && (
