@@ -103,7 +103,7 @@ export function EmailPreview({ html, subject, previewText, className }: EmailPre
     ) : (
       <div className={cn(
         "flex justify-center bg-muted/10 p-4",
-        fullHeight ? "flex-1 overflow-y-auto" : "max-h-[480px] overflow-y-auto"
+        fullHeight ? "flex-1 overflow-y-auto" : "max-h-[65vh] overflow-y-auto"
       )}>
         <div className={cn(
           "bg-background rounded shadow-sm border w-full",
