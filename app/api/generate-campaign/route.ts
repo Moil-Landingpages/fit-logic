@@ -24,10 +24,47 @@ EMAIL BODY FORMAT — LIGHT BRANDED HTML:
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, segments, mode, emailCount } = await req.json();
+    const { prompt, segments, mode, emailCount, emailType, ctaUrl } = await req.json();
     if (!prompt) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     }
+
+    // A2.5 — campaign type biases the system prompt. Validate to a known set
+    // so a typo upstream doesn't poison the model context.
+    const allowedEmailTypes = ["cold_outreach", "newsletter", "educational", "reengagement", "promotional"] as const;
+    type EmailType = typeof allowedEmailTypes[number];
+    const safeEmailType: EmailType | null =
+      typeof emailType === "string" && (allowedEmailTypes as readonly string[]).includes(emailType)
+        ? (emailType as EmailType)
+        : null;
+
+    const emailTypeBlock = safeEmailType
+      ? (() => {
+          switch (safeEmailType) {
+            case "cold_outreach":
+              return "EMAIL TYPE: Cold outreach. Recipient does not yet know Fit Logic. Lead with a question hook (\"Are you still struggling with…\", \"You may be wondering why…\"). Make the email about the recipient, not about Megan or the practice. Avoid \"I wanted to share\" or \"I want to tell you\" openers — they feel practitioner-centric.";
+            case "newsletter":
+              return "EMAIL TYPE: Newsletter. Existing audience. Friendly subject line tied to a date or theme. Lead with one short observation, then 2–3 short bullets or paragraphs. End with a soft single CTA.";
+            case "educational":
+              return "EMAIL TYPE: Educational. Teach one thing well. Open with a question or quick anecdote, explain the mechanism plainly, end with a soft CTA to learn more.";
+            case "reengagement":
+              return "EMAIL TYPE: Re-engagement. Recipient went quiet. Keep it short and human. Acknowledge time has passed. Offer one easy way back in (book a call, reply with a question).";
+            case "promotional":
+              return "EMAIL TYPE: Promotional. Time-bound offer. State the offer in plain English in the first sentence. Clear CTA. Avoid all-caps and aggressive scarcity language.";
+          }
+        })()
+      : "";
+
+    const brandVoiceGuardrail = `BRAND VOICE GUARDRAILS (apply to every email you generate):
+- Make the email about the RECIPIENT, not the practitioner. Default to "you" framing, not "I want to share" / "I'm writing to tell you".
+- Prefer question hooks for cold audiences ("Are you still…", "You may be wondering…", "What if…").
+- Avoid "I wanted to share a quick thought", "I want to tell you about", and similar practitioner-centric openers.
+- Avoid hospital-discharge tone, generic SaaS phrasing, and aggressive marketer hype.
+- One clear, single CTA per email.`;
+
+    const ctaUrlBlock = typeof ctaUrl === "string" && ctaUrl.startsWith("http")
+      ? `CTA DESTINATION: Use this exact URL on the call-to-action button — do not invent or modify it: ${ctaUrl}`
+      : "";
 
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
     if (!GEMINI_API_KEY) {
@@ -77,6 +114,12 @@ Generate ${count} emails that build a cohesive sequence:
 
 Keep subject lines 6-10 words. Keep each email distinct, helpful, and easy to reply to.
 
+${emailTypeBlock}
+
+${brandVoiceGuardrail}
+
+${ctaUrlBlock}
+
 PERSONALIZATION (required):
 - Always open the greeting with the recipient's first name using the variable {first_name} — e.g. "Hi {first_name}," or "Hey {first_name},"
 - You may also use {first_name} once more naturally inside the body when it genuinely adds warmth.
@@ -110,6 +153,12 @@ You MUST use the generate_campaign tool to return your response. Generate compel
 - Suggest the best matching segment from the available ones when possible
 - Suggest optimal send timing based on the campaign type
 - Match the message to the most relevant Fit Logic service, audience need, or lifecycle moment
+
+${emailTypeBlock}
+
+${brandVoiceGuardrail}
+
+${ctaUrlBlock}
 
 PERSONALIZATION (required):
 - Always open the greeting with the recipient's first name using the variable {first_name} — e.g. "Hi {first_name}," or "Hey {first_name},"

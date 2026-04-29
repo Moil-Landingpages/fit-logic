@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import Papa from "papaparse";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { QK } from "@/lib/queryKeys";
 import { useToast } from "@/hooks/use-toast";
@@ -182,6 +182,21 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
   const [summary, setSummary]     = useState({ inserted: 0, skipped: 0, errors: 0 });
   const [errorRows, setErrorRows] = useState<string[]>([]);
   const [contactType, setContactType] = useState<ContactType>("lead");
+  // A2.4: tag every imported row into a single segment so Megan's "Active
+  // Patient" / "Inactive Patient" / "Cold lead" workflow takes one click.
+  const [importSegmentId, setImportSegmentId] = useState<string>("");
+
+  const { data: segments = [] } = useQuery({
+    queryKey: ["segments"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("segments")
+        .select("id, name, manual_contact_ids")
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as { id: string; name: string; manual_contact_ids: string[] | null }[];
+    },
+  });
 
   // ─── Reset on close ────────────────────────────────────────────────────────
   const handleClose = () => {
@@ -192,6 +207,7 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
     setProgress(0);
     setSummary({ inserted: 0, skipped: 0, errors: 0 });
     setErrorRows([]);
+    setImportSegmentId("");
     setContactType("lead");
     onOpenChange(false);
   };
@@ -294,6 +310,9 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
     let skipped  = 0;
     let errors   = 0;
     const errList: string[] = [];
+    // A2.4: collect every successfully written patient id so we can tag them
+    // into the chosen segment after the row-by-row loop completes.
+    const writtenPatientIds: string[] = [];
 
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
       const chunk = rows.slice(i, i + CHUNK_SIZE);
@@ -389,19 +408,23 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
                 errList.push(`Row ${record.rowNumber}: ${updateErr.message}`);
               } else {
                 inserted++;
+                writtenPatientIds.push(existing.id);
               }
               continue;
             }
           }
 
-          const { error: insertErr } = await supabase
+          const { data: insertedRow, error: insertErr } = await supabase
             .from("patients")
-            .insert(payload as any);
+            .insert(payload as any)
+            .select("id")
+            .single();
           if (insertErr) {
             errors++;
             errList.push(`Row ${record.rowNumber}: ${insertErr.message}`);
           } else {
             inserted++;
+            if (insertedRow?.id) writtenPatientIds.push(insertedRow.id);
           }
         }
       }
@@ -410,6 +433,25 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
     }
 
     setProgress(100);
+
+    // A2.4: tag all successfully-written rows into the chosen segment.
+    if (importSegmentId && writtenPatientIds.length > 0) {
+      const seg = segments.find((s) => s.id === importSegmentId);
+      if (seg) {
+        const merged = Array.from(new Set([...(seg.manual_contact_ids ?? []), ...writtenPatientIds]));
+        const { error: segErr } = await supabase
+          .from("segments")
+          .update({ manual_contact_ids: merged })
+          .eq("id", importSegmentId);
+        if (segErr) {
+          // Surface but don't fail the import — rows are already written.
+          errList.push(`Segment tag failed: ${segErr.message}`);
+        } else {
+          qc.invalidateQueries({ queryKey: ["segments"] });
+        }
+      }
+    }
+
     setSummary({ inserted, skipped, errors });
     setErrorRows(errList.slice(0, 20)); // cap displayed errors
     setStep("done");
@@ -623,6 +665,24 @@ export function BulkImportDialog({ open, onOpenChange }: Props) {
                   ))}
                 </tbody>
               </table>
+            </div>
+            {/* A2.4: optional segment-on-import for the patient-list workflow */}
+            <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+              <p className="text-xs font-medium">Tag all imported rows into a segment (optional)</p>
+              <p className="text-[10px] text-muted-foreground">
+                Use this for the Charm patient export — pick &quot;Active patient&quot; or &quot;Inactive patient&quot; so cold campaigns
+                automatically skip them.
+              </p>
+              <select
+                value={importSegmentId}
+                onChange={(e) => setImportSegmentId(e.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="">No segment</option>
+                {segments.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setStep("map")}>Back</Button>

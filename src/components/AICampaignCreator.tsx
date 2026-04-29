@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { Sparkles, Loader2, Check, Lightbulb, Clock, Users, ChevronDown, ChevronUp, ShieldCheck, Palette, ArrowLeft, ArrowRight, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmailPreview } from "@/components/EmailPreview";
 import { RichEmailEditor } from "@/components/RichEmailEditor";
 import type { Segment } from "@/lib/campaign-data";
@@ -51,6 +54,23 @@ interface PersistedDraft {
   result: AICampaignResult | null;
 }
 
+type EmailType = "cold_outreach" | "newsletter" | "educational" | "reengagement" | "promotional";
+
+const EMAIL_TYPE_OPTIONS: { value: EmailType; label: string }[] = [
+  { value: "cold_outreach", label: "Cold outreach" },
+  { value: "newsletter",    label: "Newsletter" },
+  { value: "educational",   label: "Educational" },
+  { value: "reengagement",  label: "Re-engagement" },
+  { value: "promotional",   label: "Promotional" },
+];
+
+interface PracticeLink {
+  id: string;
+  label: string;
+  url: string;
+  is_default: boolean;
+}
+
 export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AICampaignCreatorProps) {
   const [step, setStep] = useState<CreatorStep>("prompt");
   const [prompt, setPrompt] = useState("");
@@ -58,6 +78,27 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
   const [result, setResult] = useState<AICampaignResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showEditFields, setShowEditFields] = useState(true);
+
+  // A2.5: email type + saved link picker. Both default-empty so the prompt
+  // contract stays optional — older AI campaigns continue to work.
+  const [emailType, setEmailType] = useState<EmailType>("cold_outreach");
+  const [ctaUrl, setCtaUrl] = useState<string>("");
+
+  const { data: links = [] } = useQuery({
+    queryKey: ["practice_links"],
+    queryFn: async (): Promise<PracticeLink[]> => {
+      // Cast to bypass auto-generated supabase types — practice_links was
+      // added in migration 20260429000002.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const tbl = (supabase as any).from("practice_links");
+      const { data, error: e } = await tbl
+        .select("id, label, url, is_default")
+        .order("sort_order", { ascending: true })
+        .order("label", { ascending: true });
+      if (e) throw e;
+      return (data ?? []) as PracticeLink[];
+    },
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -101,6 +142,9 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
         body: JSON.stringify({
           prompt: prompt.trim(),
           segments: segments.map((s) => ({ name: s.name, description: s.description, estimatedCount: s.estimatedCount })),
+          // A2.5
+          emailType,
+          ctaUrl: ctaUrl || undefined,
         }),
       });
       const data = await res.json();
@@ -167,6 +211,41 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
           {/* ── Step 1: Prompt ── */}
           {step === "prompt" && (
             <div className="space-y-4 py-2">
+              {/* A2.5: email type + saved-link picker — nudges the prompt
+                  upstream so we don't depend on Megan remembering to write
+                  "this is a newsletter" in the prompt. */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs text-muted-foreground">Email type</Label>
+                  <Select value={emailType} onValueChange={(v) => setEmailType(v as EmailType)} disabled={isGenerating}>
+                    <SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {EMAIL_TYPE_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">CTA link</Label>
+                  <Select
+                    value={ctaUrl}
+                    onValueChange={(v) => setCtaUrl(v === "__none__" ? "" : v)}
+                    disabled={isGenerating}
+                  >
+                    <SelectTrigger className="h-9 mt-1">
+                      <SelectValue placeholder={links.length ? "Pick a saved link" : "No saved links yet"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No CTA link</SelectItem>
+                      {links.map((l) => (
+                        <SelectItem key={l.id} value={l.url}>{l.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
               <Textarea
                 placeholder="Describe your campaign goal... e.g., 'Re-engage leads who haven't responded in 2 weeks with a special offer'"
                 value={prompt}

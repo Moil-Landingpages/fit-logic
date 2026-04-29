@@ -9,7 +9,7 @@ import { toast } from "@/hooks/use-toast";
 import {
   Users, Plus, Search, MoreHorizontal, Mail, Building2,
   Eye, Pencil, Trash2, ChevronLeft, ArrowUpDown, Tag, StickyNote,
-  TrendingUp, Send, X, Filter, Upload, Download, Clock, FlaskConical,
+  TrendingUp, Send, X, Filter, Upload, Download, Clock, FlaskConical, MapPin,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,8 +18,9 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
@@ -285,6 +286,7 @@ export default function Patients() {
   const [sourceFilter, setSourceFilter] = useState<string>(saved?.sourceFilter ?? "all");
   const [sortBy, setSortBy] = useState<"newest" | "name" | "company" | "deal_value" | "last_contacted_oldest" | "last_contacted_newest">(saved?.sortBy ?? "newest");
   const [contactFilter, setContactFilter] = useState<"all" | "never" | "30d">(saved?.contactFilter ?? "all");
+  const [stateFilter, setStateFilter] = useState<string>(saved?.stateFilter ?? "all");
   const [showFilters, setShowFilters] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -297,13 +299,13 @@ export default function Patients() {
 
   // Persist filters to sessionStorage
   useEffect(() => {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ search, statusFilter, stageFilter, sourceFilter, sortBy, contactFilter }));
-  }, [search, statusFilter, stageFilter, sourceFilter, sortBy, contactFilter]);
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ search, statusFilter, stageFilter, sourceFilter, sortBy, contactFilter, stateFilter }));
+  }, [search, statusFilter, stageFilter, sourceFilter, sortBy, contactFilter, stateFilter]);
 
-  const hasActiveFilters = search || statusFilter !== "all" || stageFilter !== "all" || sourceFilter !== "all" || contactFilter !== "all";
+  const hasActiveFilters = search || statusFilter !== "all" || stageFilter !== "all" || sourceFilter !== "all" || contactFilter !== "all" || stateFilter !== "all";
 
   const clearFilters = () => {
-    setSearch(""); setStatusFilter("all"); setStageFilter("all"); setSourceFilter("all"); setSortBy("newest"); setContactFilter("all");
+    setSearch(""); setStatusFilter("all"); setStageFilter("all"); setSourceFilter("all"); setSortBy("newest"); setContactFilter("all"); setStateFilter("all");
   };
 
   const PAGE_SIZE = 500;
@@ -491,6 +493,43 @@ export default function Patients() {
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  // A2.3: bulk-tag selected contacts into a segment via segments.manual_contact_ids.
+  const { data: segments = [] } = useQuery({
+    queryKey: QK.segments,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("segments")
+        .select("id, name, manual_contact_ids")
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as { id: string; name: string; manual_contact_ids: string[] | null }[];
+    },
+  });
+  const [addToSegmentOpen, setAddToSegmentOpen] = useState(false);
+  const [segmentChoice, setSegmentChoice] = useState<string>("");
+
+  const addToSegmentMutation = useMutation({
+    mutationFn: async ({ segmentId, ids }: { segmentId: string; ids: string[] }) => {
+      const seg = segments.find((s) => s.id === segmentId);
+      if (!seg) throw new Error("Segment not found");
+      const merged = Array.from(new Set([...(seg.manual_contact_ids ?? []), ...ids]));
+      const { error } = await supabase
+        .from("segments")
+        .update({ manual_contact_ids: merged })
+        .eq("id", segmentId);
+      if (error) throw error;
+      return { name: seg.name, added: ids.length };
+    },
+    onSuccess: ({ name, added }) => {
+      queryClient.invalidateQueries({ queryKey: QK.segments });
+      setSelected(new Set());
+      setAddToSegmentOpen(false);
+      setSegmentChoice("");
+      toast({ title: `Added ${added} to “${name}”` });
+    },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -527,6 +566,10 @@ export default function Patients() {
     }
     if (stageFilter !== "all") result = result.filter(p => p.pipeline_stage === stageFilter);
     if (sourceFilter !== "all") result = result.filter(p => p.lead_source === sourceFilter);
+    if (stateFilter !== "all") {
+      const norm = stateFilter.trim().toLowerCase();
+      result = result.filter(p => (p.state ?? "").trim().toLowerCase() === norm);
+    }
     if (contactFilter === "never") {
       result = result.filter(p => !p.last_contacted_at);
     } else if (contactFilter === "30d") {
@@ -561,7 +604,18 @@ export default function Patients() {
       });
     }
     return result;
-  }, [allPatients, statusFilter, stageFilter, sourceFilter, search, sortBy, contactFilter]);
+  }, [allPatients, statusFilter, stageFilter, sourceFilter, search, sortBy, contactFilter, stateFilter]);
+
+  // Distinct state values present in the loaded contacts — fuels the
+  // state-filter dropdown so Megan can scope a campaign to (e.g.) Texas.
+  const stateOptions = useMemo(() => {
+    const seen = new Set<string>();
+    for (const p of allPatients) {
+      const s = (p.state ?? "").trim();
+      if (s) seen.add(s);
+    }
+    return Array.from(seen).sort();
+  }, [allPatients]);
 
   // ─── DETAIL VIEW ───
   if (viewing) {
@@ -1075,6 +1129,29 @@ export default function Patients() {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {/* State filter (A2.6) — runs over distinct values in the loaded
+              contact set so it doesn't surface states with no contacts. */}
+          {stateOptions.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant={stateFilter !== "all" ? "secondary" : "outline"}
+                  size="sm"
+                  className="gap-1.5 h-9"
+                >
+                  <MapPin className="h-3.5 w-3.5" />
+                  {stateFilter === "all" ? "Any state" : stateFilter}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
+                <DropdownMenuItem onClick={() => setStateFilter("all")}>Any state</DropdownMenuItem>
+                {stateOptions.map((s) => (
+                  <DropdownMenuItem key={s} onClick={() => setStateFilter(s)}>{s}</DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
           {/* More filters toggle */}
           <Button
             variant={showFilters ? "secondary" : "outline"}
@@ -1152,6 +1229,9 @@ export default function Patients() {
       {selected.size > 0 && (
         <div className="flex items-center gap-3 rounded-lg border bg-card p-3 shadow-card">
           <span className="text-sm font-medium">{selected.size} selected</span>
+          <Button variant="outline" size="sm" onClick={() => setAddToSegmentOpen(true)}>
+            <Tag className="h-3.5 w-3.5 mr-1" /> Add to segment
+          </Button>
           <Button variant="destructive" size="sm" onClick={() => setBulkDeleteOpen(true)}>
             <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete Selected
           </Button>
@@ -1368,6 +1448,35 @@ export default function Patients() {
 
       {/* Bulk Import */}
       <BulkImportDialog open={importOpen} onOpenChange={setImportOpen} />
+
+      {/* Add to segment (A2.3) */}
+      <Dialog open={addToSegmentOpen} onOpenChange={(o) => { setAddToSegmentOpen(o); if (!o) setSegmentChoice(""); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add {selected.size} contact{selected.size === 1 ? "" : "s"} to a segment</DialogTitle>
+            <DialogDescription>
+              Pick the segment to tag. Existing members of that segment are kept; duplicates are ignored.
+            </DialogDescription>
+          </DialogHeader>
+          <Select value={segmentChoice} onValueChange={setSegmentChoice}>
+            <SelectTrigger className="h-9"><SelectValue placeholder="Select segment" /></SelectTrigger>
+            <SelectContent>
+              {segments.map((s) => (
+                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddToSegmentOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => addToSegmentMutation.mutate({ segmentId: segmentChoice, ids: Array.from(selected) })}
+              disabled={!segmentChoice || addToSegmentMutation.isPending}
+            >
+              {addToSegmentMutation.isPending ? "Adding…" : "Add"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
