@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { EmailPreview } from "@/components/EmailPreview";
+import { RichEmailEditor } from "@/components/RichEmailEditor";
 import type { Segment } from "@/lib/campaign-data";
 
 interface GeneratedEmail {
@@ -484,12 +485,17 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
                                 </div>
                               </div>
                               <div>
-                                <Label className="text-xs text-muted-foreground">Email Body (HTML)</Label>
-                                <Textarea
-                                  value={email.bodyHtml}
-                                  onChange={e => updateEmail(idx, { bodyHtml: e.target.value })}
-                                  className="mt-1 text-sm font-mono min-h-[150px]"
-                                />
+                                <Label className="text-xs text-muted-foreground">Email Body</Label>
+                                <div className="mt-1">
+                                  <RichEmailEditor
+                                    value={email.bodyHtml}
+                                    onChange={(html) => updateEmail(idx, { bodyHtml: html })}
+                                    subject={email.subject}
+                                    previewText={email.previewText}
+                                    placeholder="Edit your email content here..."
+                                    minHeight={150}
+                                  />
+                                </div>
                               </div>
                             </div>
                           )}

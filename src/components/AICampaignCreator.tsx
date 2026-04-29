@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { EmailPreview } from "@/components/EmailPreview";
+import { RichEmailEditor } from "@/components/RichEmailEditor";
 import type { Segment } from "@/lib/campaign-data";
 
 interface AICampaignResult {
@@ -270,12 +271,17 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
                       <Input value={result.previewText} onChange={e => setResult({ ...result, previewText: e.target.value })} className="mt-1 text-sm" />
                     </div>
                     <div>
-                      <Label className="text-xs text-muted-foreground">Email Body (HTML)</Label>
-                      <Textarea
-                        value={result.bodyHtml}
-                        onChange={e => setResult({ ...result, bodyHtml: e.target.value })}
-                        className="mt-1 text-sm font-mono min-h-[320px]"
-                      />
+                      <Label className="text-xs text-muted-foreground">Email Body</Label>
+                      <div className="mt-1">
+                        <RichEmailEditor
+                          value={result.bodyHtml}
+                          onChange={(html) => setResult({ ...result, bodyHtml: html })}
+                          subject={result.subject}
+                          previewText={result.previewText}
+                          placeholder="Edit your email content here. Use double Enter for paragraphs. Click 'Insert Variable' to personalize."
+                          minHeight={280}
+                        />
+                      </div>
                     </div>
                   </div>
                 )}

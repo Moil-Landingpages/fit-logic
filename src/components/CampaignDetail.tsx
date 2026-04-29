@@ -7,7 +7,7 @@ import type { TablesUpdate } from "@/integrations/supabase/types";
 import {
   ArrowLeft, Pencil, Clock, Pause, Play, Send, Eye, Users,
   ChevronDown, ChevronUp, Mail, Layers, UserPlus, Calendar,
-  CalendarClock, Shield, X, MousePointerClick, Activity, RotateCcw, Zap, Save
+  CalendarClock, Shield, X, MousePointerClick, Activity, RotateCcw, Zap, Save, MapPin
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -25,6 +25,7 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { EmailPreview } from "@/components/EmailPreview";
+import { RichEmailEditor } from "@/components/RichEmailEditor";
 import { CampaignRecipients, type Recipient } from "@/components/CampaignRecipients";
 import { CAMPAIGN_STATUS_CONFIG, type CampaignStatus } from "@/lib/types";
 import { CampaignActivityLog } from "@/components/CampaignActivityLog";
@@ -271,18 +272,49 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  // Calculate next 8am Texas time for scheduling
+  const getNext8amTexas = () => {
+    const TEXAS_TIMEZONE = "America/Chicago";
+    const now = new Date();
+    // Get current time in Texas
+    const texasTimeStr = now.toLocaleString("en-US", { timeZone: TEXAS_TIMEZONE });
+    const texasNow = new Date(texasTimeStr);
+    const currentHour = texasNow.getHours();
+    const currentDay = texasNow.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+
+    // Create next 8am Texas time
+    const next8am = new Date(now);
+    next8am.setUTCHours(14, 0, 0, 0); // 14:00 UTC = 8am CST / 9am CDT
+
+    // If it's past 8am Texas time today, move to tomorrow
+    if (currentHour >= 8) {
+      next8am.setUTCDate(next8am.getUTCDate() + 1);
+    }
+
+    // If next8am falls on weekend, skip to Monday
+    const nextDayOfWeek = next8am.getDay();
+    if (nextDayOfWeek === 0) { // Sunday
+      next8am.setUTCDate(next8am.getUTCDate() + 1);
+    } else if (nextDayOfWeek === 6) { // Saturday
+      next8am.setUTCDate(next8am.getUTCDate() + 2);
+    }
+
+    return next8am.toISOString();
+  };
+
   const handleConfirmSchedule = () => {
+    const next8amTexas = getNext8amTexas();
     updateStatusMut.mutate({
       status: "scheduled",
-      scheduled_at: new Date(scheduleDate).toISOString(),
+      scheduled_at: next8amTexas,
       auto_schedule: autoSchedule,
       max_sends_per_day: maxSendsPerDay,
-      business_hours_start: businessHoursStart,
-      business_hours_end: businessHoursEnd,
-      business_days: businessDays,
+      business_hours_start: 8, // Hardcoded 8am Texas
+      business_hours_end: 9,   // Hardcoded (8am-9am window)
+      business_days: ["Mon", "Tue", "Wed", "Thu", "Fri"], // Hardcoded weekdays
     });
     setShowSchedulePanel(false);
-    toast({ title: "Campaign scheduled", description: `Starts ${new Date(scheduleDate).toLocaleString()}` });
+    toast({ title: "Campaign scheduled", description: "Emails will start sending at 8:00 AM Texas time on the next business day." });
   };
 
   const sentRecipients = recipients.filter(r => r.status !== "pending");
@@ -382,21 +414,19 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
               </Button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Start date/time */}
+            {/* 8am Texas Time Info */}
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-primary/10 border border-primary/20">
+              <MapPin className="h-4 w-4 text-primary mt-0.5 shrink-0" />
               <div>
-                <Label className="text-xs">Start Sending</Label>
-                <Input
-                  type="datetime-local"
-                  value={scheduleDate}
-                  onChange={e => setScheduleDate(e.target.value)}
-                  className="mt-1 h-9 text-sm"
-                />
+                <p className="text-xs font-medium text-foreground">Emails send daily at 8:00 AM Texas time</p>
+                <p className="text-[10px] text-muted-foreground">Monday through Friday only. Campaign will start on the next business day.</p>
               </div>
+            </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Max sends per day */}
               <div>
-                <Label className="text-xs">Max Emails / Day</Label>
+                <Label className="text-xs">Max Emails Per Day</Label>
                 <div className="flex items-center gap-2 mt-1">
                   <Input
                     type="number" min={1} max={50}
@@ -405,55 +435,19 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
                     className="h-9 text-sm w-24"
                   />
                   <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                    <Shield className="h-3 w-3" />Max 50 to avoid spam filters
+                    <Shield className="h-3 w-3" />Max 50/day for deliverability
                   </span>
                 </div>
               </div>
-            </div>
 
-            {/* Business hours */}
-            <div>
-              <Label className="text-xs">Business Hours</Label>
-              <div className="flex items-center gap-2 mt-1">
-                <Select value={String(businessHoursStart)} onValueChange={v => setBusinessHoursStart(parseInt(v))}>
-                  <SelectTrigger className="h-9 text-sm w-24"><SelectValue /></SelectTrigger>
-                  <SelectContent>{Array.from({ length: 14 }, (_, i) => i + 6).map(h => <SelectItem key={h} value={String(h)}>{h}:00</SelectItem>)}</SelectContent>
-                </Select>
-                <span className="text-xs text-muted-foreground">to</span>
-                <Select value={String(businessHoursEnd)} onValueChange={v => setBusinessHoursEnd(parseInt(v))}>
-                  <SelectTrigger className="h-9 text-sm w-24"><SelectValue /></SelectTrigger>
-                  <SelectContent>{Array.from({ length: 14 }, (_, i) => i + 10).map(h => <SelectItem key={h} value={String(h)}>{h}:00</SelectItem>)}</SelectContent>
-                </Select>
+              {/* Auto-schedule toggle */}
+              <div className="flex items-center justify-between rounded-lg border p-3 bg-background">
+                <div>
+                  <p className="text-xs font-medium text-foreground">Auto-Schedule</p>
+                  <p className="text-[10px] text-muted-foreground">Space sends across days</p>
+                </div>
+                <Switch checked={autoSchedule} onCheckedChange={setAutoSchedule} />
               </div>
-            </div>
-
-            {/* Send days */}
-            <div>
-              <Label className="text-xs">Send Days</Label>
-              <div className="flex gap-1.5 mt-1.5">
-                {ALL_DAYS.map(day => (
-                  <button
-                    key={day}
-                    onClick={() => toggleDay(day)}
-                    className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
-                      businessDays.includes(day)
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-background text-muted-foreground border-border hover:bg-muted"
-                    }`}
-                  >
-                    {day}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Auto-schedule toggle */}
-            <div className="flex items-center justify-between rounded-lg border p-3 bg-background">
-              <div>
-                <p className="text-xs font-medium text-foreground">Auto-Schedule</p>
-                <p className="text-[10px] text-muted-foreground">Automatically space sends across business days</p>
-              </div>
-              <Switch checked={autoSchedule} onCheckedChange={setAutoSchedule} />
             </div>
 
             <Separator />
@@ -744,23 +738,18 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
               </div>
             )}
             <div className="flex-1">
-              <Label className="text-xs">Email Body (HTML)</Label>
-              <Textarea
-                className="mt-1 text-xs font-mono min-h-[320px] resize-y"
-                value={editingEmail?.bodyHtml ?? ""}
-                onChange={e => setEditingEmail(p => p ? { ...p, bodyHtml: e.target.value } : p)}
-                placeholder="<p>Hi {first_name},</p>…"
-              />
-              <p className="text-[10px] text-muted-foreground mt-1">Use <code className="bg-muted px-1 rounded">{`{first_name}`}</code> for personalization. HTML is supported.</p>
-            </div>
-            {editingEmail?.bodyHtml && (
-              <div>
-                <Label className="text-xs text-muted-foreground">Preview</Label>
-                <div className="mt-1 rounded-lg border overflow-hidden">
-                  <EmailPreview html={editingEmail.bodyHtml} subject={editingEmail.subject} />
-                </div>
+              <Label className="text-xs">Email Body</Label>
+              <div className="mt-1">
+                <RichEmailEditor
+                  value={editingEmail?.bodyHtml ?? ""}
+                  onChange={(html) => setEditingEmail(p => p ? { ...p, bodyHtml: html } : p)}
+                  subject={editingEmail?.subject}
+                  previewText={editingEmail?.previewText}
+                  placeholder="Write your email here. Use double Enter for paragraphs. Click 'Insert Variable' to personalize with contact data."
+                  minHeight={280}
+                />
               </div>
-            )}
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingEmail(null)}>Cancel</Button>

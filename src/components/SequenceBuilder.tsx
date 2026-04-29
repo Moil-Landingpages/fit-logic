@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef } from "react";
-import DOMPurify from "dompurify";
 import { Plus, Trash2, ArrowDown, Clock, Mail, Eye, EyeOff, Sparkles, Loader2, Info, GripVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmailPreview } from "@/components/EmailPreview";
+import { RichEmailEditor } from "@/components/RichEmailEditor";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 
@@ -309,16 +309,13 @@ export function SequenceBuilder({ steps, onChange }: SequenceBuilderProps) {
                         <EmailPreview html={step.body_html} subject={step.subject} />
                       ) : (
                         <div className="space-y-3">
-                          <Textarea value={step.body_html} onChange={(e) => updateStep(step.id, { body_html: e.target.value })}
-                            placeholder="Write email copy as near-plain-text HTML for best deliverability. Use only <p>, <a href>, and <br> tags — no images, no tables, no inline styles." className="text-sm font-mono min-h-[180px]" />
-                          {step.body_html && (
-                            <div>
-                              <p className="text-[10px] text-muted-foreground mb-1.5">Live Preview</p>
-                              <div className="rounded-md border bg-background p-4">
-                                <div className="prose prose-sm max-w-none text-foreground [&_a]:text-primary" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(step.body_html) }} />
-                              </div>
-                            </div>
-                          )}
+                          <RichEmailEditor
+                            value={step.body_html}
+                            onChange={(html) => updateStep(step.id, { body_html: html })}
+                            subject={step.subject}
+                            placeholder="Write your email here. Use double Enter for new paragraphs. Click 'Insert Variable' to personalize."
+                            minHeight={180}
+                          />
                         </div>
                       )}
                     </div>

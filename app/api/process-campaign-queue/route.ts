@@ -58,13 +58,17 @@ async function updateCampaignStats(supabase: SupabaseClient, campaignId: string)
   await supabase.from("campaigns").update({ stats }).eq("id", campaignId);
 }
 
+// Hardcoded Texas timezone for 8am daily sends
+const TEXAS_TIMEZONE = "America/Chicago";
+const SEND_HOUR = 8; // 8:00 AM Texas time
+
 export async function POST(req: NextRequest) {
   const supabase = serverClient();
 
   try {
     const { data: settings } = await supabase
       .from("practice_settings")
-      .select("email_provider_api_key, email_from_address, email_from_name, timezone, business_hours_start, business_hours_end, business_days, max_sends_per_day")
+      .select("email_provider_api_key, email_from_address, email_from_name, max_sends_per_day")
       .limit(1)
       .single();
 
@@ -72,7 +76,6 @@ export async function POST(req: NextRequest) {
     // FROM_EMAIL env var takes priority over the DB setting
     const fromAddress = process.env.FROM_EMAIL ?? settings?.email_from_address ?? "";
     const fromName = settings?.email_from_name ?? "FitLogic";
-    const practiceTimezone = settings?.timezone ?? "America/New_York";
     const fromHeader = fromName ? `${fromName} <${fromAddress}>` : fromAddress;
 
     if (!emailApiKey || !fromAddress) {
@@ -80,11 +83,21 @@ export async function POST(req: NextRequest) {
     }
 
     const now = new Date();
-    const localTimeStr = now.toLocaleString("en-US", { timeZone: practiceTimezone });
-    const localNow = new Date(localTimeStr);
-    const currentHour = localNow.getHours();
+
+    // Get current time in Texas timezone
+    const texasTimeStr = now.toLocaleString("en-US", { timeZone: TEXAS_TIMEZONE });
+    const texasNow = new Date(texasTimeStr);
+    const currentHour = texasNow.getHours();
     const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const currentDay = dayNames[localNow.getDay()];
+    const currentDay = dayNames[texasNow.getDay()];
+
+    // Only process if it's around 8am Texas time
+    if (currentHour !== SEND_HOUR) {
+      return NextResponse.json({ message: `Skipped - current Texas time is ${currentHour}:00, not ${SEND_HOUR}:00` });
+    }
+
+    // Get today's date in Texas timezone for duplicate prevention
+    const texasDateStr = texasNow.toLocaleDateString("en-CA"); // YYYY-MM-DD
 
     const { data: campaigns, error: campErr } = await supabase
       .from("campaigns")
@@ -104,12 +117,12 @@ export async function POST(req: NextRequest) {
     const results: unknown[] = [];
 
     for (const campaign of campaigns) {
-      const bhStart = campaign.business_hours_start ?? settings?.business_hours_start ?? 8;
-      const bhEnd = campaign.business_hours_end ?? settings?.business_hours_end ?? 18;
-      const bizDays: string[] = campaign.business_days ?? settings?.business_days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"];
-
-      if (!bizDays.includes(currentDay)) { results.push({ campaign: campaign.name, skipped: "not a business day" }); continue; }
-      if (currentHour < bhStart || currentHour >= bhEnd) { results.push({ campaign: campaign.name, skipped: "outside business hours" }); continue; }
+      // Only send on weekdays (Mon-Fri) at 8am Texas time
+      const businessDays = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+      if (!businessDays.includes(currentDay)) {
+        results.push({ campaign: campaign.name, skipped: "not a business day (Mon-Fri only)" });
+        continue;
+      }
 
       const maxSends = campaign.max_sends_per_day ?? settings?.max_sends_per_day ?? 500;
       const todayStart = new Date(now);
