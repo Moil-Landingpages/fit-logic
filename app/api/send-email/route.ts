@@ -91,6 +91,27 @@ export async function POST(req: NextRequest) {
       hasGmail,
     );
 
+    // Log the send to contact_email_log so the Mailing tab on the contact
+    // shows it (campaign sends live in campaign_send_log; this is the
+    // equivalent for ad-hoc compose sends). Failed sends are logged too.
+    if (patient_id) {
+      // Cast through any — auto-generated supabase types in
+      // src/integrations/supabase/types.ts predate this table (added in
+      // migration 20260510000001).
+      await (sb as any).from("contact_email_log").insert({
+        patient_id,
+        to_address: to,
+        to_name: toName ?? null,
+        subject: processedSubject,
+        body_html: processedBody,
+        status: result.success ? "sent" : "failed",
+        provider: result.success ? result.provider ?? null : null,
+        message_id: result.success ? result.messageId ?? null : null,
+        error_message: result.success ? null : result.error ?? null,
+        sent_at: new Date().toISOString(),
+      });
+    }
+
     if (!result.success) {
       return NextResponse.json(
         { error: result.error ?? "Send failed" },

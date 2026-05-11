@@ -13,6 +13,7 @@ import {
   Search, Trash2, Copy, MousePointerClick, Sparkles, Layers, X, Filter
 } from "lucide-react";
 import { EmailPreview } from "@/components/EmailPreview";
+import { RichEmailEditor } from "@/components/RichEmailEditor";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -501,10 +502,21 @@ const Campaigns_Page = () => {
   const filteredCampaigns = campaigns.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
   const filteredTemplates = templates.filter(t => t.name.toLowerCase().includes(search.toLowerCase()) || t.subject.toLowerCase().includes(search.toLowerCase()));
   const totalSent = campaigns.reduce((sum, c) => sum + ((c.stats as any)?.sent || 0), 0);
-  const totalOpened = campaigns.reduce((sum, c) => sum + ((c.stats as any)?.opened || 0), 0);
-  const totalClicked = campaigns.reduce((sum, c) => sum + ((c.stats as any)?.clicked || 0), 0);
-  const avgOpenRate = totalSent > 0 ? Math.round((totalOpened / totalSent) * 100) : 0;
-  const avgClickRate = totalSent > 0 ? Math.round((totalClicked / totalSent) * 100) : 0;
+  // Clamp per-campaign opens/clicks to sent before aggregating. Legacy stats
+  // rows (pre-fix) could record more opens than sends — usually because
+  // bounced/failed rows still recorded pixel hits — which would push the
+  // displayed average above 100%. Until the next stats refresh writes
+  // corrected numbers, this guards the display.
+  const totalOpened = campaigns.reduce((sum, c) => {
+    const s = (c.stats as any) || {};
+    return sum + Math.min(s.opened || 0, s.sent || 0);
+  }, 0);
+  const totalClicked = campaigns.reduce((sum, c) => {
+    const s = (c.stats as any) || {};
+    return sum + Math.min(s.clicked || 0, s.sent || 0);
+  }, 0);
+  const avgOpenRate = totalSent > 0 ? Math.min(100, Math.round((totalOpened / totalSent) * 100)) : 0;
+  const avgClickRate = totalSent > 0 ? Math.min(100, Math.round((totalClicked / totalSent) * 100)) : 0;
 
   const handleDuplicate = async (campaign: CampaignRow) => {
     const { data: newCampaign, error } = await supabase.from("campaigns").insert({
@@ -1173,12 +1185,16 @@ const Campaigns_Page = () => {
 
       {/* Template editor with live preview */}
       <Dialog open={showTemplateEditor} onOpenChange={v => { if (!v) { setShowTemplateEditor(false); setEditingTemplate(null); } }}>
-        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
-          <DialogHeader><DialogTitle>{editingTemplate?.id ? "Edit Template" : "New Template"}</DialogTitle></DialogHeader>
-          <ScrollArea className="flex-1 pr-2">
-            <div className="grid grid-cols-2 gap-4 mt-2">
-              {/* Edit side */}
-              <div className="space-y-3">
+        <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 pt-6 pb-3 shrink-0 border-b">
+            <DialogTitle>{editingTemplate?.id ? "Edit Template" : "New Template"}</DialogTitle>
+          </DialogHeader>
+          {/* Native overflow-y-auto gives the flex chain a single scroll
+              region. ScrollArea + nested editor previously double-scrolled
+              and made the long template body unreachable. */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div><Label className="text-sm">Name</Label><Input value={editingTemplate?.name || ""} onChange={e => setEditingTemplate(p => ({ ...p, name: e.target.value }))} /></div>
                 <div><Label className="text-sm">Category</Label>
                   <Select value={editingTemplate?.category || "welcome"} onValueChange={v => setEditingTemplate(p => ({ ...p, category: v }))}>
@@ -1186,22 +1202,23 @@ const Campaigns_Page = () => {
                     <SelectContent>{Object.entries(TEMPLATE_CATEGORY_CONFIG).map(([k, v]) => <SelectItem key={k} value={k}>{v.label}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
-                <div><Label className="text-sm">Subject Line</Label><Input value={editingTemplate?.subject || ""} onChange={e => setEditingTemplate(p => ({ ...p, subject: e.target.value }))} /></div>
-                <div><Label className="text-sm">Preview Text</Label><Input value={editingTemplate?.preview_text || ""} onChange={e => setEditingTemplate(p => ({ ...p, preview_text: e.target.value }))} /></div>
-                <div><Label className="text-sm">Body HTML</Label><Textarea value={editingTemplate?.body_html || ""} onChange={e => setEditingTemplate(p => ({ ...p, body_html: e.target.value }))} className="min-h-[250px] font-mono text-xs" /></div>
               </div>
-              {/* Live preview side */}
+              <div><Label className="text-sm">Subject Line</Label><Input value={editingTemplate?.subject || ""} onChange={e => setEditingTemplate(p => ({ ...p, subject: e.target.value }))} /></div>
+              <div><Label className="text-sm">Preview Text</Label><Input value={editingTemplate?.preview_text || ""} onChange={e => setEditingTemplate(p => ({ ...p, preview_text: e.target.value }))} /></div>
               <div>
-                <Label className="text-sm mb-2 block">Live Preview</Label>
-                <EmailPreview
-                  html={editingTemplate?.body_html || ""}
+                <Label className="text-sm">Body</Label>
+                <RichEmailEditor
+                  value={editingTemplate?.body_html || ""}
+                  onChange={(html) => setEditingTemplate(p => ({ ...p, body_html: html }))}
                   subject={editingTemplate?.subject || ""}
                   previewText={editingTemplate?.preview_text || ""}
+                  placeholder="Write your template here. Use the toolbar to format text, add links, lists, images and CTA buttons."
+                  minHeight={300}
                 />
               </div>
             </div>
-          </ScrollArea>
-          <DialogFooter>
+          </div>
+          <DialogFooter className="px-6 py-3 border-t shrink-0">
             <Button variant="outline" onClick={() => { setShowTemplateEditor(false); setEditingTemplate(null); }}>Cancel</Button>
             <Button className="gradient-brand text-primary-foreground" onClick={() => editingTemplate && saveTemplateMut.mutate(editingTemplate)} disabled={saveTemplateMut.isPending}>Save</Button>
           </DialogFooter>

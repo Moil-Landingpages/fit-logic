@@ -6,14 +6,18 @@ import { applyEmailVars, buildPatientVars } from "@/lib/email-vars";
 import { tryClaimCampaignLock, releaseCampaignLock } from "@/lib/campaign-lock";
 import { signUnsubToken } from "@/lib/unsub-token";
 import { syncContactOnEmailSent } from "@/lib/contact-sync";
+import { chicagoMidnightUtc } from "@/lib/texas-time";
 
 async function updateCampaignStats(supabase: SupabaseClient, campaignId: string) {
   const { data } = await supabase.from("campaign_send_log").select("status, opened_at, clicked_at").eq("campaign_id", campaignId);
   if (!data) return;
+  // Open/click counts must only come from rows that successfully sent.
+  // Otherwise a bounced or failed row whose pixel still fired (e.g. preview
+  // bots, late-arriving webhook) pushes the ratio over 100%.
   const stats = {
     sent: data.filter((r) => r.status === "sent").length,
-    opened: data.filter((r) => r.opened_at).length,
-    clicked: data.filter((r) => r.clicked_at).length,
+    opened: data.filter((r) => r.status === "sent" && r.opened_at).length,
+    clicked: data.filter((r) => r.status === "sent" && r.clicked_at).length,
     bounced: data.filter((r) => r.status === "bounced").length,
   };
   await supabase.from("campaigns").update({ stats }).eq("id", campaignId);
@@ -109,14 +113,11 @@ export async function POST(req: NextRequest) {
       }
 
       const maxSends = campaign.max_sends_per_day ?? settings?.max_sends_per_day ?? 500;
-      // Reset window for "today's sends" must align with Texas midnight, not
-      // UTC midnight. The cron fires at 14:00 UTC = 8/9am CT, so a UTC reset
-      // window made the per-day counter clear partway through the practice's
-      // workday. Using America/Chicago midnight gives one clean reset/day in
-      // the user's local timezone.
-      const texasMidnightStr = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
-      texasMidnightStr.setHours(0, 0, 0, 0);
-      const todayStart = texasMidnightStr;
+      // Reset window for "today's sends" aligns with Chicago midnight via
+      // Intl (DST-correct on any host TZ). Old code mutated server-local
+      // hours, which on UTC hosts produced a window starting 5–6h before
+      // actual Texas midnight.
+      const todayStart = chicagoMidnightUtc(now);
 
       const { count: sentToday } = await supabase
         .from("campaign_send_log")

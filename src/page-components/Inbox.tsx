@@ -34,10 +34,10 @@ const Inbox = () => {
   const handleGmailSync = async () => {
     setSyncing(true);
     try {
-      const res = await fetch("/api/sync-gmail", { method: "POST" });
+      const res = await fetch("/api/mail/sync", { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error ?? "Gmail sync failed");
+        toast.error(data.error ?? "Mail sync failed");
       } else if (data.synced === 0) {
         toast.info(data.message ?? "No new emails");
       } else {

@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Mail, Globe, Phone, PenLine, Search, Filter, AlertTriangle } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { Mail, Globe, Phone, PenLine, Search, Filter, AlertTriangle, MessageSquare, Reply } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CategoryBadge } from "@/components/CategoryBadge";
@@ -41,6 +43,29 @@ export function InquiryList({ inquiries, selectedId, onSelect }: Props) {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  // Bulk fetch message counts so each row can show "n replies" without an N+1.
+  // The query is keyed by the visible inquiry IDs so it auto-refreshes when
+  // a new inquiry appears.
+  const inquiryIds = inquiries.map((i) => i.id);
+  const { data: replyCounts = {} } = useQuery<Record<string, { inbound: number; outbound: number }>>({
+    queryKey: ["inquiry-message-counts", inquiryIds.join(",")],
+    enabled: inquiryIds.length > 0,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("inquiry_messages")
+        .select("inquiry_id, direction")
+        .in("inquiry_id", inquiryIds);
+      if (error) return {};
+      const out: Record<string, { inbound: number; outbound: number }> = {};
+      for (const row of (data ?? []) as { inquiry_id: string; direction: "inbound" | "outbound" }[]) {
+        if (!out[row.inquiry_id]) out[row.inquiry_id] = { inbound: 0, outbound: 0 };
+        out[row.inquiry_id][row.direction]++;
+      }
+      return out;
+    },
+  });
 
   const filtered = inquiries.filter((inq) => {
     if (search && !inq.patient_name.toLowerCase().includes(search.toLowerCase()) && !inq.raw_content.toLowerCase().includes(search.toLowerCase())) return false;
@@ -187,9 +212,22 @@ export function InquiryList({ inquiries, selectedId, onSelect }: Props) {
                   <div className="mb-2">
                     <MailPreview content={inq.raw_content} maxLength={100} />
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <CategoryBadge category={inq.category as InquiryCategory} />
                     <StatusBadge status={inq.status as InquiryStatus} />
+                    {(() => {
+                      const c = replyCounts[inq.id];
+                      const total = (c?.inbound ?? 0) + (c?.outbound ?? 0);
+                      // Only badge when this is actually a multi-message thread —
+                      // a single inbound message isn't a "thread", so skip it.
+                      if (total <= 1) return null;
+                      return (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-1.5 py-0.5 text-[10px] font-medium">
+                          {(c?.outbound ?? 0) > 0 ? <Reply className="h-2.5 w-2.5" /> : <MessageSquare className="h-2.5 w-2.5" />}
+                          {total} msgs
+                        </span>
+                      );
+                    })()}
                     {(inq.category_confidence ?? 0) < 0.9 && (
                       <span className="text-[10px] text-muted-foreground">
                         ({Math.round((inq.category_confidence ?? 0) * 100)}%)

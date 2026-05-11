@@ -185,11 +185,32 @@ export function MailFormatter({
   );
 }
 
-// Simple preview variant for list views
+// Simple preview variant for list views. Strips HTML tags + collapses
+// whitespace so an inbound HTML email shows a readable snippet instead of
+// a wall of `<table>` source.
 export function MailPreview({ content, maxLength = 120 }: { content: string | null | undefined; maxLength?: number }) {
   const parsed = useMemo(() => parseEmailContent(content), [content]);
-  const preview = parsed.body.slice(0, maxLength).trim();
-  const hasMore = parsed.body.length > maxLength;
+  const plain = useMemo(() => {
+    const body = parsed.body ?? "";
+    return body
+      .replace(/<!doctype[\s\S]*?>/gi, "")
+      .replace(/<style[\s\S]*?<\/style>/gi, "")
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(/<br\s*\/?>/gi, " ")
+      .replace(/<\/p>/gi, " ")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, " ")
+      .trim();
+  }, [parsed.body]);
+  const preview = plain.slice(0, maxLength).trim();
+  const hasMore = plain.length > maxLength;
 
   return (
     <div className="line-clamp-2 text-sm text-muted-foreground">

@@ -156,22 +156,19 @@ export function RichEmailEditor({
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  // Initialize editor content when (re-)entering visual mode. The previous
-  // implementation guarded with a `hasInitialized` ref that was never reset,
-  // so switching to Preview/HTML and back unmounted the contentEditable div
-  // and the freshly-mounted replacement was left blank — the user's typing
-  // appeared to vanish. We now reset the guard whenever we leave visual mode
-  // so a remount triggers the init again.
+  // Initialize editor content when (re-)entering visual mode. Placeholder is
+  // rendered via CSS (:empty::before) — never injected as content — so the
+  // user starts on an empty paragraph and can just type.
   useEffect(() => {
     if (mode !== "visual") {
       hasInitialized.current = false;
       return;
     }
     if (editorRef.current && !hasInitialized.current && mounted) {
-      editorRef.current.innerHTML = value || `<p>${placeholder}</p>`;
+      editorRef.current.innerHTML = value || "";
       hasInitialized.current = true;
     }
-  }, [mode, placeholder, value, mounted]);
+  }, [mode, value, mounted]);
 
   // Save selection before inserting
   const saveSelection = () => {
@@ -641,25 +638,44 @@ export function RichEmailEditor({
             <Separator orientation="vertical" className="h-6 mx-1" />
             
             {/* Insert */}
-            <div className="relative">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 px-2 gap-1.5"
-                onMouseDown={(e) => { e.preventDefault(); handleLinkClick(); }}
-                disabled={showLinkInput}
-              >
-                <Link className="h-4 w-4" />
-                <span className="text-xs">Link</span>
-              </Button>
-              
-              {showLinkInput && (
-                <div
-                  className="absolute top-full left-0 mt-1 z-50 bg-popover border rounded-md shadow-md p-3 w-72 max-w-[calc(100vw-2rem)] space-y-3"
-                  // Stop clicks inside the popover from bubbling out and
-                  // collapsing the saved selection.
-                  onMouseDown={(e) => e.stopPropagation()}
+            <Popover
+              open={showLinkInput}
+              onOpenChange={(o) => {
+                if (!o) {
+                  setShowLinkInput(false);
+                  setLinkUrl("");
+                  savedLinkRange.current = null;
+                }
+              }}
+            >
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 gap-1.5"
+                  // onMouseDown fires before focus moves, so we capture the
+                  // current selection range BEFORE the popover takes focus.
+                  onMouseDown={(e) => { e.preventDefault(); handleLinkClick(); }}
                 >
+                  <Link className="h-4 w-4" />
+                  <span className="text-xs">Link</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="bottom"
+                align="start"
+                sideOffset={4}
+                collisionPadding={12}
+                // Radix handles collision detection (flip + shift) so the
+                // popover never bleeds outside the dialog/viewport.
+                className="w-[min(20rem,calc(100vw-1.5rem))] p-3 space-y-3"
+                onMouseDown={(e) => e.stopPropagation()}
+                onOpenAutoFocus={(e) => {
+                  // Don't autofocus the wrapper; we explicitly focus the
+                  // URL input via linkInputRef inside handleLinkClick.
+                  e.preventDefault();
+                }}
+              >
                   {/* Saved links from Settings → Links */}
                   {savedLinks.length > 0 && (
                     <div className="space-y-1.5">
@@ -745,9 +761,8 @@ export function RichEmailEditor({
                       </p>
                     )}
                   </div>
-                </div>
-              )}
-            </div>
+              </PopoverContent>
+            </Popover>
             
             <Button
               variant="ghost"
@@ -908,6 +923,7 @@ export function RichEmailEditor({
             <div
               ref={editorRef}
               contentEditable
+              data-placeholder={placeholder}
               onInput={handleEditorInput}
               onMouseUp={saveSelection}
               onKeyUp={saveSelection}
@@ -915,7 +931,13 @@ export function RichEmailEditor({
               // word-break + overflow-wrap stop a long pasted URL (or any
               // unbroken string) from forcing the parent dialog to scroll
               // sideways. max-w-full keeps the editor pinned to the dialog.
-              className="min-h-[300px] max-w-full p-4 rounded-md border border-input text-foreground resize-y overflow-auto focus:outline-none focus:ring-2 focus:ring-ring focus:border-input [&_a]:text-blue-600 [&_a]:underline [&_a]:cursor-pointer dark:[&_a]:text-blue-400 [&_a]:break-all [&_img]:max-w-full"
+              // List styles are explicit because Tailwind preflight resets
+              // them, otherwise execCommand insertUnordered/OrderedList shows
+              // no bullets/numbers.
+              // resize-none + no inner overflow so the editor grows with
+              // its content and the parent dialog handles all scrolling.
+              // Nested scroll containers used to trap the cursor mid-edit.
+              className="rich-editor-content min-h-[300px] max-w-full p-4 rounded-md border border-input text-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring focus:border-input [&_a]:text-blue-600 [&_a]:underline [&_a]:cursor-pointer dark:[&_a]:text-blue-400 [&_a]:break-all [&_img]:max-w-full [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2 [&_li]:my-0.5 [&_blockquote]:border-l-4 [&_blockquote]:border-muted-foreground/30 [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-muted-foreground"
               style={{ minHeight, wordBreak: "break-word", overflowWrap: "anywhere" }}
             />
             <p className="text-[10px] text-muted-foreground mt-2">

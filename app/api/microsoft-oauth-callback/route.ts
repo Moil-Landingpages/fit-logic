@@ -2,15 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { serverClient } from "@/lib/supabase";
 import { encryptToken } from "@/lib/providers/crypto";
 
+const MS_SCOPES = [
+  "openid",
+  "profile",
+  "email",
+  "offline_access",
+  "Mail.Read",
+  "Mail.Send",
+  "Calendars.ReadWrite",
+].join(" ");
+
 export async function POST(req: NextRequest) {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const clientId = process.env.MICROSOFT_CLIENT_ID;
+  const clientSecret = process.env.MICROSOFT_CLIENT_SECRET;
+  const tenant = process.env.MICROSOFT_TENANT_ID || "common";
 
   if (!clientId || !clientSecret) {
-    return NextResponse.json(
-      { error: "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET must be set" }, { status: 500 });
   }
 
   try {
@@ -22,6 +30,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "OAuth state mismatch" }, { status: 400 });
     }
 
+    // Reject if Google is already connected — provider lock.
     const sb = serverClient();
     const { data: existingRaw } = await sb
       .from("practice_settings")
@@ -30,29 +39,29 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     const existing = existingRaw as { id: string; mail_provider: string | null; provider_connected: boolean | null } | null;
 
-    if (existing?.provider_connected && existing.mail_provider === "microsoft") {
+    if (existing?.provider_connected && existing.mail_provider === "google") {
       return NextResponse.json(
-        { error: "Microsoft is currently connected. Disconnect it before connecting Google." },
+        { error: "Google is currently connected. Disconnect it before connecting Microsoft." },
         { status: 409 },
       );
     }
 
-    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+    const tokenRes = await fetch(`https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ code, client_id: clientId, client_secret: clientSecret, redirect_uri, grant_type: "authorization_code" }),
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        code,
+        redirect_uri,
+        grant_type: "authorization_code",
+        scope: MS_SCOPES,
+      }),
     });
 
     if (!tokenRes.ok) {
-      const errText = await tokenRes.text();
-      let parsed: unknown = errText;
-      try { parsed = JSON.parse(errText); } catch {}
-      console.error("[google-oauth-callback] Token exchange failed", { status: tokenRes.status, detail: parsed, redirect_uri });
-      const detail = (parsed && typeof parsed === "object" && "error_description" in (parsed as any))
-        ? (parsed as any).error_description
-        : (parsed && typeof parsed === "object" && "error" in (parsed as any))
-          ? (parsed as any).error
-          : errText;
+      const detail = await tokenRes.text();
+      console.error("[microsoft-oauth-callback] Token exchange failed", detail);
       return NextResponse.json({ error: "Token exchange failed", detail }, { status: 400 });
     }
 
@@ -61,41 +70,30 @@ export async function POST(req: NextRequest) {
       refresh_token?: string;
       expires_in: number;
       scope: string;
+      id_token?: string;
     };
 
-    // Look up email via userinfo so we can show the connected account.
+    // Resolve user email from Microsoft Graph.
     let userEmail: string | null = null;
     try {
-      const r = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      const meRes = await fetch("https://graph.microsoft.com/v1.0/me", {
         headers: { Authorization: `Bearer ${tokens.access_token}` },
       });
-      if (r.ok) {
-        const u = await r.json() as { email?: string };
-        userEmail = u.email ?? null;
+      if (meRes.ok) {
+        const me = await meRes.json() as { mail?: string; userPrincipalName?: string };
+        userEmail = me.mail ?? me.userPrincipalName ?? null;
       }
     } catch {}
 
-    const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
-
-    // Maintain legacy per-service token blobs so existing send-gmail / sync-gmail
-    // routes keep working while callers migrate to the unified provider layer.
-    const legacyPayload = {
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token ?? null,
-      expires_at: expiresAt,
-      scope: tokens.scope,
-    };
-
     const updates: Record<string, unknown> = {
-      mail_provider: "google",
+      mail_provider: "microsoft",
       provider_email: userEmail,
       provider_connected: true,
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token ? encryptToken(tokens.refresh_token) : null,
-      token_expiry: expiresAt,
+      token_expiry: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
       token_scope: tokens.scope,
-      google_calendar_token: tokens.scope?.includes("calendar") ? legacyPayload : null,
-      google_gmail_token: tokens.scope?.includes("gmail") ? legacyPayload : null,
+      microsoft_tenant: tenant,
     };
 
     let settingsId: string | undefined = existing?.id;
@@ -115,15 +113,11 @@ export async function POST(req: NextRequest) {
       if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
     }
 
-    // Reset previously synced inquiries when the connected mailbox changes.
+    // When the connected provider changes, drop previously synced inquiries
+    // so the inbox reflects only the newly connected mailbox.
     await sb.from("inquiries").delete().in("source", ["gmail", "gmail_sent", "outlook", "outlook_sent"]);
 
-    return NextResponse.json({
-      success: true,
-      provider: "google",
-      email: userEmail,
-      connected: { calendar: tokens.scope?.includes("calendar"), gmail: tokens.scope?.includes("gmail") },
-    });
+    return NextResponse.json({ success: true, provider: "microsoft", email: userEmail });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Unexpected error" }, { status: 500 });
   }

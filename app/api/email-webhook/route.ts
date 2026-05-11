@@ -77,10 +77,16 @@ async function updateCampaignStats(campaignId: string) {
   if (!data) return;
   const rows = data as unknown as SendLogRow[];
 
+  // Open/click counts must be drawn from rows that successfully delivered
+  // (i.e. not failed and not bounced). Pixel hits on bounced rows — from
+  // preview bots or stale webhook events — would otherwise push the open
+  // rate above 100%.
+  const isDelivered = (r: SendLogRow) =>
+    r.status !== "failed" && r.status !== "bounced";
   const stats = {
-    sent: rows.filter((r) => r.status !== "failed").length,
-    opened: rows.filter((r) => r.opened_at).length,
-    clicked: rows.filter((r) => r.clicked_at).length,
+    sent: rows.filter(isDelivered).length,
+    opened: rows.filter((r) => isDelivered(r) && r.opened_at).length,
+    clicked: rows.filter((r) => isDelivered(r) && r.clicked_at).length,
     bounced: rows.filter((r) => r.status === "bounced").length,
     complained: rows.filter((r) => r.complaint_at).length,
     failed: rows.filter((r) => r.status === "failed").length,

@@ -18,4 +18,6 @@ export const QK = {
   staff:              ["staff"]              as const,
   settings:           ["settings"]           as const,
   suppressions:       ["email_suppressions"] as const,
+  appointments:       (filter?: { patient_id?: string; status?: string }) =>
+                        ["appointments", filter ?? {}] as const,
 } as const;

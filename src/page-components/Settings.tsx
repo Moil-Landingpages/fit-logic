@@ -61,6 +61,9 @@ type PracticeSettings = {
   escalation_staff_id: string | null;
   google_calendar_token: Record<string, string> | null;
   google_gmail_token: Record<string, string> | null;
+  mail_provider: "google" | "microsoft" | null;
+  provider_email: string | null;
+  provider_connected: boolean | null;
   email_provider: string;
   email_provider_api_key: string | null;
   email_from_address: string | null;
@@ -401,6 +404,31 @@ function StaffTab({
 }
 
 // ─── Integrations Tab ──────────────────────────────────────────────────────────
+function OutlookIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 239" width="24" height="24">
+      <path fill="#0072C6" d="M120.8 132.4 0 53.4v138.2l120.8-23.7z"/>
+      <path fill="#0072C6" d="M256 23.2v192.6L138.7 192V47.4z"/>
+      <path fill="#FFF" d="M195 100.3a27 27 0 0 0-27 27c0 14.9 12.1 27 27 27s27-12.1 27-27a27 27 0 0 0-27-27"/>
+      <path fill="#0072C6" d="M195 113.3a14 14 0 0 1 14 14c0 7.7-6.3 14-14 14s-14-6.3-14-14a14 14 0 0 1 14-14"/>
+      <path fill="#0072C6" d="M120.8 132.4 0 53.4v-23l132.7 32.4z"/>
+    </svg>
+  );
+}
+
+function ProviderLockBanner({ provider }: { provider: "google" | "microsoft" }) {
+  const other = provider === "google" ? "Microsoft Outlook" : "Google Workspace";
+  return (
+    <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-xs text-amber-800 dark:text-amber-300">
+      <Plug className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+      <span>
+        Only one mail provider can be connected at a time. {other} is locked because{" "}
+        {provider === "google" ? "Google" : "Microsoft"} is currently connected. Disconnect it to switch providers.
+      </span>
+    </div>
+  );
+}
+
 function IntegrationsTab({
   settings,
   onSave,
@@ -410,102 +438,199 @@ function IntegrationsTab({
   onSave: (updates: Partial<PracticeSettings>) => void;
   oauthLoading?: boolean;
 }) {
-  const isGoogleCalendarConnected = !!settings.google_calendar_token;
-  const isGoogleGmailConnected = !!settings.google_gmail_token;
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState<"google" | "microsoft" | "disconnect" | null>(null);
+
+  const activeProvider = settings.provider_connected ? settings.mail_provider : null;
+  const googleConnected = activeProvider === "google";
+  const microsoftConnected = activeProvider === "microsoft";
+  const googleLocked = !!activeProvider && !googleConnected;
+  const microsoftLocked = !!activeProvider && !microsoftConnected;
+
+  const buildState = () => {
+    const s = crypto.getRandomValues(new Uint8Array(16));
+    let bin = "";
+    for (let i = 0; i < s.length; i++) bin += String.fromCharCode(s[i]);
+    const state = btoa(bin).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+    sessionStorage.setItem("oauth_state", state);
+    return state;
+  };
 
   const handleGoogleConnect = () => {
+    if (googleLocked) return;
+    setBusy("google");
     const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
     const redirectUri = `${window.location.origin}/settings`;
     const scope = encodeURIComponent(
-      "https://www.googleapis.com/auth/calendar.readonly " +
+      "openid email profile " +
+      "https://www.googleapis.com/auth/calendar " +
       "https://www.googleapis.com/auth/gmail.send " +
       "https://www.googleapis.com/auth/gmail.readonly"
     );
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`;
-    window.location.href = authUrl;
+    const state = buildState();
+    sessionStorage.setItem("oauth_provider", "google");
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent&state=${state}`;
   };
 
-  const handleGoogleDisconnect = (service: "calendar" | "gmail") => {
-    if (service === "calendar") onSave({ google_calendar_token: null });
-    else onSave({ google_gmail_token: null });
-    toast.success(`Google ${service === "calendar" ? "Calendar" : "Gmail"} disconnected`);
+  const handleMicrosoftConnect = () => {
+    if (microsoftLocked) return;
+    setBusy("microsoft");
+    const clientId = process.env.NEXT_PUBLIC_MICROSOFT_CLIENT_ID;
+    const tenant = process.env.NEXT_PUBLIC_MICROSOFT_TENANT_ID || "common";
+    const redirectUri = process.env.NEXT_PUBLIC_MICROSOFT_REDIRECT_URI || `${window.location.origin}/settings`;
+    const scope = encodeURIComponent(
+      "openid profile email offline_access Mail.Read Mail.Send Calendars.ReadWrite",
+    );
+    const state = buildState();
+    sessionStorage.setItem("oauth_provider", "microsoft");
+    window.location.href =
+      `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize` +
+      `?client_id=${clientId}` +
+      `&response_type=code` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&response_mode=query` +
+      `&scope=${scope}` +
+      `&state=${state}` +
+      `&prompt=select_account`;
+  };
+
+  const handleDisconnect = async () => {
+    setBusy("disconnect");
+    try {
+      const r = await fetch("/api/disconnect-provider", { method: "POST" });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error || "Failed to disconnect");
+      toast.success("Provider disconnected — previous inbox cleared");
+      queryClient.invalidateQueries({ queryKey: QK.settings });
+      queryClient.invalidateQueries({ queryKey: QK.inquiries });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to disconnect");
+    } finally {
+      setBusy(null);
+    }
   };
 
   return (
     <div className="space-y-6">
-      {/* OAuth in-progress banner */}
       {oauthLoading && (
         <div className="flex items-center gap-3 p-3 rounded-lg border bg-primary/5 border-primary/20 text-sm text-primary">
           <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-          Completing Google authorization — please wait…
+          Completing authorization — please wait…
         </div>
       )}
 
-      {/* Google Integration */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Plug className="h-4 w-4 text-primary" /> Google Workspace
-          </CardTitle>
-          <CardDescription className="text-xs">
-            Connect Google Calendar for scheduling and Gmail for email sending.
-            
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Google Calendar */}
-          <div className="flex items-center justify-between p-3 rounded-lg border">
+      {/* Connected provider status card */}
+      {activeProvider && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" /> Mail Provider Connected
+            </CardTitle>
+            <CardDescription className="text-xs">
+              {activeProvider === "google" ? "Google Workspace" : "Microsoft Outlook"} is your active mail and calendar provider.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center">
-                <GoogleCalendarIcon className="h-5 w-5" />
+              <div className="h-10 w-10 rounded-lg bg-muted/50 flex items-center justify-center">
+                {activeProvider === "google" ? <GmailIcon className="h-5 w-5" /> : <OutlookIcon className="h-5 w-5" />}
               </div>
               <div>
-                <p className="text-sm font-medium">Google Calendar</p>
-                <p className="text-xs text-muted-foreground">Read calendar availability for scheduling</p>
+                <p className="text-sm font-medium">{settings.provider_email ?? "Connected account"}</p>
+                <p className="text-xs text-muted-foreground capitalize">{activeProvider} · Mail + Calendar</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              {isGoogleCalendarConnected ? (
-                <>
-                  <Badge className="bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 text-[10px]">
-                    <CheckCircle2 className="h-3 w-3 mr-1" /> Connected
-                  </Badge>
-                  <Button variant="outline" size="sm" onClick={() => handleGoogleDisconnect("calendar")}>
-                    Disconnect
-                  </Button>
-                </>
-              ) : (
-                <Button size="sm" onClick={handleGoogleConnect} className="gap-1.5">
-                  <ExternalLink className="h-3.5 w-3.5" /> Connect Google
-                </Button>
-              )}
-            </div>
-          </div>
+            <Button variant="outline" size="sm" disabled={busy === "disconnect"} onClick={handleDisconnect} className="gap-1.5">
+              {busy === "disconnect" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              Disconnect
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
-          {/* Gmail */}
+      {/* Google Workspace */}
+      <Card className={googleLocked ? "opacity-60" : undefined}>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <GmailIcon className="h-4 w-4" /> Google Workspace
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Gmail + Google Calendar for sending email and scheduling.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {googleLocked && <ProviderLockBanner provider="microsoft" />}
           <div className="flex items-center justify-between p-3 rounded-lg border">
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-lg bg-red-50 dark:bg-red-950/40 flex items-center justify-center">
                 <GmailIcon className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-sm font-medium">Gmail</p>
-                <p className="text-xs text-muted-foreground">Send emails via Gmail on behalf of your practice</p>
+                <p className="text-sm font-medium">Gmail + Calendar</p>
+                <p className="text-xs text-muted-foreground">
+                  {googleConnected ? `Connected as ${settings.provider_email ?? "Google account"}` : "Send mail and read calendar availability"}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {isGoogleGmailConnected ? (
-                <>
-                  <Badge className="bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 text-[10px]">
-                    <CheckCircle2 className="h-3 w-3 mr-1" /> Connected
-                  </Badge>
-                  <Button variant="outline" size="sm" onClick={() => handleGoogleDisconnect("gmail")}>
-                    Disconnect
-                  </Button>
-                </>
+              {googleConnected ? (
+                <Badge className="bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 text-[10px]">
+                  <CheckCircle2 className="h-3 w-3 mr-1" /> Connected
+                </Badge>
               ) : (
-                <Button size="sm" onClick={handleGoogleConnect} className="gap-1.5">
-                  <ExternalLink className="h-3.5 w-3.5" /> Connect Google
+                <Button
+                  size="sm"
+                  onClick={handleGoogleConnect}
+                  disabled={googleLocked || busy === "google"}
+                  className="gap-1.5"
+                >
+                  {busy === "google" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ExternalLink className="h-3.5 w-3.5" />}
+                  Connect Google
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Microsoft Outlook */}
+      <Card className={microsoftLocked ? "opacity-60" : undefined}>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <OutlookIcon className="h-4 w-4" /> Microsoft Outlook
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Outlook mail + Microsoft 365 Calendar via Microsoft Graph. Works with personal and work accounts.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {microsoftLocked && <ProviderLockBanner provider="google" />}
+          <div className="flex items-center justify-between p-3 rounded-lg border">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center">
+                <OutlookIcon className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Outlook + Calendar</p>
+                <p className="text-xs text-muted-foreground">
+                  {microsoftConnected ? `Connected as ${settings.provider_email ?? "Microsoft account"}` : "Send mail and manage events via Microsoft Graph"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {microsoftConnected ? (
+                <Badge className="bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 text-[10px]">
+                  <CheckCircle2 className="h-3 w-3 mr-1" /> Connected
+                </Badge>
+              ) : (
+                <Button
+                  size="sm"
+                  onClick={handleMicrosoftConnect}
+                  disabled={microsoftLocked || busy === "microsoft"}
+                  className="gap-1.5"
+                >
+                  {busy === "microsoft" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ExternalLink className="h-3.5 w-3.5" />}
+                  Connect Outlook
                 </Button>
               )}
             </div>
@@ -940,40 +1065,51 @@ const Settings = () => {
   const [activeTab, setActiveTab] = useState("practice");
   const [oauthLoading, setOauthLoading] = useState(false);
 
-  // Handle Google OAuth callback — exchange code for tokens via edge function
+  // Handle OAuth callback for both Google and Microsoft — dispatch to the
+  // matching backend route based on the provider that initiated the flow.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
-    const tab  = params.get("tab");
+    const state = params.get("state");
+    const oauthError = params.get("error");
+    const tab = params.get("tab");
+
+    if (oauthError) {
+      toast.error(`OAuth error: ${params.get("error_description") || oauthError}`);
+      window.history.replaceState({}, "", window.location.pathname + "?tab=integrations");
+      setActiveTab("integrations");
+      return;
+    }
 
     if (code) {
+      const provider = (sessionStorage.getItem("oauth_provider") as "google" | "microsoft" | null) ?? "google";
+      const expectedState = sessionStorage.getItem("oauth_state");
+      sessionStorage.removeItem("oauth_provider");
+      sessionStorage.removeItem("oauth_state");
       window.history.replaceState({}, "", window.location.pathname + "?tab=integrations");
       setActiveTab("integrations");
       setOauthLoading(true);
 
-      const redirectUri = `${window.location.origin}/settings`;
+      const redirectUri =
+        provider === "microsoft"
+          ? (process.env.NEXT_PUBLIC_MICROSOFT_REDIRECT_URI || `${window.location.origin}/settings`)
+          : `${window.location.origin}/settings`;
+      const endpoint = provider === "microsoft" ? "/api/microsoft-oauth-callback" : "/api/google-oauth-callback";
 
-      fetch("/api/google-oauth-callback", {
+      fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, redirect_uri: redirectUri }),
+        body: JSON.stringify({ code, redirect_uri: redirectUri, state, expectedState }),
       })
         .then((r) => r.json())
         .then((data) => {
-          if (!data?.success && data?.error) {
-            console.error("Google OAuth callback error:", data);
-            const detailMsg = typeof data.detail === "string" ? data.detail : data.detail ? JSON.stringify(data.detail) : "";
-            toast.error(`Google connection failed: ${data.error}${detailMsg ? ` — ${detailMsg}` : ""}`);
-          } else if (data?.success) {
-            const connected = data.connected as { calendar?: boolean; gmail?: boolean };
-            const services = [
-              connected.calendar && "Calendar",
-              connected.gmail    && "Gmail",
-            ].filter(Boolean).join(" & ");
-            toast.success(`Google ${services} connected successfully`);
-            queryClient.invalidateQueries({ queryKey: QK.settings });
+          if (!data?.success) {
+            const detailMsg = typeof data?.detail === "string" ? data.detail : data?.detail ? JSON.stringify(data.detail) : "";
+            toast.error(`${provider === "microsoft" ? "Outlook" : "Google"} connection failed: ${data?.error || "unknown"}${detailMsg ? ` — ${detailMsg}` : ""}`);
           } else {
-            toast.error(data?.error ?? "Google connection failed");
+            toast.success(`${provider === "microsoft" ? "Outlook" : "Google"} connected${data.email ? ` as ${data.email}` : ""}`);
+            queryClient.invalidateQueries({ queryKey: QK.settings });
+            queryClient.invalidateQueries({ queryKey: QK.inquiries });
           }
         })
         .finally(() => setOauthLoading(false));
@@ -1006,6 +1142,9 @@ const Settings = () => {
     escalation_staff_id: null,
     google_calendar_token: null,
     google_gmail_token: null,
+    mail_provider: null,
+    provider_email: null,
+    provider_connected: false,
     email_provider: "resend",
     email_provider_api_key: null,
     email_from_address: null,

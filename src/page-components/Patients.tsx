@@ -41,6 +41,7 @@ import { PatientForm, type PatientFormData } from "@/components/PatientForm";
 import { PatientTimeline } from "@/components/PatientTimeline";
 import { BulkImportDialog } from "@/components/BulkImportDialog";
 import { RichEmailEditor, type EmailAttachment } from "@/components/RichEmailEditor";
+import Appointments from "@/page-components/Appointments";
 
 type Patient = {
   id: string;
@@ -453,6 +454,28 @@ export default function Patients() {
     },
   });
 
+  // Ad-hoc compose sends from this contact's Mailing tab. Lives in
+  // contact_email_log (campaign sends live in campaign_send_log).
+  const { data: contactDirectMail = [] } = useQuery({
+    queryKey: ["contact-direct-mail", viewing?.id],
+    enabled: !!viewing,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("contact_email_log")
+        .select("id, subject, body_html, status, sent_at, opened_at, clicked_at, provider, error_message")
+        .eq("patient_id", viewing!.id)
+        .order("sent_at", { ascending: false })
+        .limit(200);
+      if (error) return [];
+      return (data ?? []) as Array<{
+        id: string; subject: string; body_html: string | null;
+        status: string; sent_at: string; opened_at: string | null;
+        clicked_at: string | null; provider: string | null;
+        error_message: string | null;
+      }>;
+    },
+  });
+
   // Campaign participation query for detail view
   const { data: contactCampaigns = [] } = useQuery({
     queryKey: ["contact-campaigns", viewing?.id],
@@ -814,11 +837,12 @@ export default function Patients() {
 
         {/* Tabs */}
         <Tabs value={detailTab} onValueChange={setDetailTab}>
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
             <TabsTrigger value="campaigns">Campaigns ({contactCampaigns.length})</TabsTrigger>
-            <TabsTrigger value="mailing">Mailing ({contactInquiries.length + contactMailLog.length})</TabsTrigger>
+            <TabsTrigger value="mailing">Mailing ({contactInquiries.length + contactMailLog.length + contactDirectMail.length})</TabsTrigger>
+            <TabsTrigger value="appointments">Appointments</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="mt-4 space-y-4">
@@ -990,7 +1014,7 @@ export default function Patients() {
           </TabsContent>
 
           <TabsContent value="mailing" className="mt-4">
-            {contactInquiries.length === 0 && contactMailLog.length === 0 ? (
+            {contactInquiries.length === 0 && contactMailLog.length === 0 && contactDirectMail.length === 0 ? (
               <Card className="shadow-card">
                 <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                   <Mail className="h-8 w-8 mb-2 opacity-40" />
@@ -1006,6 +1030,49 @@ export default function Patients() {
                     <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-0.5">Inbox Threads</p>
                     {contactInquiries.map((inq: any) => (
                       <MailThread key={inq.id} inq={inq} contactName={p.first_name + " " + p.last_name} />
+                    ))}
+                  </div>
+                )}
+
+                {/* ── Direct (Compose) outbound emails ── */}
+                {contactDirectMail.length > 0 && (
+                  <div className="space-y-3">
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-0.5">Direct Emails</p>
+                    {contactDirectMail.map((mail) => (
+                      <Card key={mail.id} className="shadow-card overflow-hidden">
+                        <CardHeader className="pb-2 pt-4 border-b border-border/50 bg-muted/30">
+                          <CardTitle className="text-sm font-medium flex items-center gap-2">
+                            <Mail className="h-4 w-4 text-primary shrink-0" />
+                            <span className="truncate">{mail.subject || "(no subject)"}</span>
+                            <Badge className={`text-[9px] border-0 ml-auto shrink-0 ${
+                              mail.status === 'sent' ? 'bg-primary/10 text-primary' :
+                              mail.status === 'failed' ? 'bg-destructive/10 text-destructive' :
+                              'bg-muted text-muted-foreground'
+                            }`}>{mail.status}</Badge>
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-4">
+                          <div className="flex gap-3 items-start">
+                            <FitLogicAvatar size={28} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-baseline gap-2 mb-1.5 flex-wrap">
+                                <span className="text-[12px] font-semibold text-primary">FitLogic</span>
+                                <span className="text-[10px] text-muted-foreground">
+                                  {mail.sent_at ? relativeDate(mail.sent_at) : '—'}
+                                </span>
+                                {mail.provider && (
+                                  <Badge variant="outline" className="text-[9px] font-mono shrink-0">{mail.provider}</Badge>
+                                )}
+                                {mail.opened_at && <Badge variant="secondary" className="text-[9px] bg-emerald-50 text-emerald-700 shrink-0">Opened</Badge>}
+                                {mail.clicked_at && <Badge variant="secondary" className="text-[9px] bg-blue-50 text-blue-700 shrink-0">Clicked</Badge>}
+                              </div>
+                              {mail.error_message && (
+                                <span className="text-[10px] text-destructive block truncate">{mail.error_message}</span>
+                              )}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
                     ))}
                   </div>
                 )}
@@ -1065,6 +1132,10 @@ export default function Patients() {
                 })()}
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="appointments" className="mt-4">
+            <Appointments initialPatientId={p.id} />
           </TabsContent>
         </Tabs>
 
@@ -1794,6 +1865,21 @@ export default function Patients() {
                   title: "Email sent",
                   description: `Message sent to ${composePatient.first_name} ${composePatient.last_name}`,
                 });
+                queryClient.invalidateQueries({ queryKey: ["contact-direct-mail", composePatient.id] });
+                queryClient.invalidateQueries({ queryKey: QK.patients });
+                // Optimistic: the server-side syncContactOnEmailSent will have
+                // bumped pipeline_stage from new_lead → contacted. Reflect it
+                // in the cache immediately so the dialog and pipeline view
+                // don't lag a network round-trip behind reality.
+                if (["new_lead", "", null, undefined].includes(composePatient.pipeline_stage as never)) {
+                  queryClient.setQueryData<Patient[]>(QK.patients, (old) =>
+                    (old ?? []).map((row) =>
+                      row.id === composePatient.id
+                        ? { ...row, pipeline_stage: "contacted", last_contacted_at: new Date().toISOString() }
+                        : row,
+                    ),
+                  );
+                }
                 setComposeOpen(false);
                 setComposeHtml("");
                 setComposeText("");

@@ -45,11 +45,14 @@ export async function syncContactOnEmailSent(
 ): Promise<void> {
   const updates: Record<string, unknown> = { last_contacted_at: sentAt };
 
-  // Only promote prospects we haven't actively engaged yet. Don't touch
+  // Only promote contacts we haven't actively engaged yet. Don't touch
   // contacts already past 'contacted' (qualified, proposal, won, etc.).
+  // Previously gated on status==='lead' too, but that surprised users:
+  // clicking the Email button on a contact should advance the deal from
+  // its first stage regardless of the contact's account status
+  // (active/inactive/lead).
   const stage = (patient.pipeline_stage ?? "").trim();
-  const status = (patient.status ?? "").trim();
-  if (status === "lead" && STAGES_TO_PROMOTE_FROM.has(stage)) {
+  if (STAGES_TO_PROMOTE_FROM.has(stage)) {
     updates.pipeline_stage = "contacted";
   }
 

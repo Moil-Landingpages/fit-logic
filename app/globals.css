@@ -136,3 +136,15 @@
     box-shadow: var(--shadow-glow);
   }
 }
+
+/* Rich editor placeholder — shown when the contenteditable is empty.
+   Browsers leave a stray <br> or empty <p> in contenteditables, so we treat
+   those as empty too. */
+.rich-editor-content:empty::before,
+.rich-editor-content:has(> br:only-child)::before,
+.rich-editor-content:has(> p:only-child:empty)::before {
+  content: attr(data-placeholder);
+  color: hsl(var(--muted-foreground));
+  pointer-events: none;
+  display: block;
+}

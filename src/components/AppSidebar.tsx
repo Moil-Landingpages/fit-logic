@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, Mail, Users, ClipboardList, FileText, Share2, Settings, BarChart3, ExternalLink, Inbox, Tent } from "lucide-react";
+import { LayoutDashboard, Mail, Users, ClipboardList, FileText, Share2, Settings, BarChart3, ExternalLink, Inbox, Tent, Calendar } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -23,6 +23,7 @@ import {
 const mainItems = [
   { title: "Pipeline", url: "/", icon: LayoutDashboard },
   { title: "Inbox", url: "/inbox", icon: Inbox },
+  { title: "Appointments", url: "/appointments", icon: Calendar },
   { title: "Campaigns", url: "/campaigns", icon: Mail },
   { title: "Contacts", url: "/contacts", icon: Users },
   // { title: "Lead Forms", url: "/forms", icon: ClipboardList },

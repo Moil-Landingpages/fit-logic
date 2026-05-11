@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/integrations/supabase/client";
 import type { TablesUpdate } from "@/integrations/supabase/types";
+import { nextBusinessDay8amChicago } from "@/lib/texas-time";
 import {
   ArrowLeft, Pencil, Clock, Pause, Play, Send, Eye, Users,
   ChevronDown, ChevronUp, Mail, Layers, UserPlus, Calendar,
@@ -456,35 +457,11 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  // Calculate next 8am Texas time for scheduling
-  const getNext8amTexas = () => {
-    const TEXAS_TIMEZONE = "America/Chicago";
-    const now = new Date();
-    // Get current time in Texas
-    const texasTimeStr = now.toLocaleString("en-US", { timeZone: TEXAS_TIMEZONE });
-    const texasNow = new Date(texasTimeStr);
-    const currentHour = texasNow.getHours();
-    const currentDay = texasNow.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-
-    // Create next 8am Texas time
-    const next8am = new Date(now);
-    next8am.setUTCHours(14, 0, 0, 0); // 14:00 UTC = 8am CST / 9am CDT
-
-    // If it's past 8am Texas time today, move to tomorrow
-    if (currentHour >= 8) {
-      next8am.setUTCDate(next8am.getUTCDate() + 1);
-    }
-
-    // If next8am falls on weekend, skip to Monday
-    const nextDayOfWeek = next8am.getDay();
-    if (nextDayOfWeek === 0) { // Sunday
-      next8am.setUTCDate(next8am.getUTCDate() + 1);
-    } else if (nextDayOfWeek === 6) { // Saturday
-      next8am.setUTCDate(next8am.getUTCDate() + 2);
-    }
-
-    return next8am.toISOString();
-  };
+  // Calculate next 8am Texas time for scheduling. Uses the DST-aware helper
+  // — the previous version hardcoded 14:00 UTC, which is 8am CST in winter
+  // but 9am CDT in summer, and skipped weekends using server-local getDay()
+  // which is wrong on UTC servers when Chicago/UTC days disagree.
+  const getNext8amTexas = () => nextBusinessDay8amChicago().toISOString();
 
   const handleConfirmSchedule = () => {
     const next8amTexas = getNext8amTexas();

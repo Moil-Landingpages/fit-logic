@@ -6,14 +6,18 @@ import { applyEmailVars, buildPatientVars } from "@/lib/email-vars";
 import { tryClaimCampaignLock, releaseCampaignLock } from "@/lib/campaign-lock";
 import { signUnsubToken } from "@/lib/unsub-token";
 import { syncContactOnEmailSent } from "@/lib/contact-sync";
+import { chicagoParts, chicagoMidnightUtc } from "@/lib/texas-time";
 
 async function updateCampaignStats(supabase: SupabaseClient, campaignId: string) {
   const { data } = await supabase.from("campaign_send_log").select("status, opened_at, clicked_at").eq("campaign_id", campaignId);
   if (!data) return;
+  // Opens/clicks come only from rows that successfully sent. Otherwise a
+  // bounced row whose tracking pixel still fired (preview bots, late
+  // webhooks) inflates the rate above 100%.
   const stats = {
     sent: data.filter((r) => r.status === "sent").length,
-    opened: data.filter((r) => r.opened_at).length,
-    clicked: data.filter((r) => r.clicked_at).length,
+    opened: data.filter((r) => r.status === "sent" && r.opened_at).length,
+    clicked: data.filter((r) => r.status === "sent" && r.clicked_at).length,
     bounced: data.filter((r) => r.status === "bounced").length,
   };
   await supabase.from("campaigns").update({ stats }).eq("id", campaignId);
@@ -56,20 +60,20 @@ async function processCampaigns(supabase: SupabaseClient, baseUrl: string) {
 
   const now = new Date();
 
-  // Get current time in Texas timezone
-  const texasTimeStr = now.toLocaleString("en-US", { timeZone: TEXAS_TIMEZONE });
-  const texasNow = new Date(texasTimeStr);
-  const currentHour = texasNow.getHours();
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const currentDay = dayNames[texasNow.getDay()];
+  // Get current Chicago wall-clock parts via Intl (DST-correct on any host
+  // timezone — the previous `new Date(toLocaleString(...))` trick was only
+  // coincidentally correct on UTC servers).
+  const chi = chicagoParts(now);
+  const currentHour = chi.hour;
+  const currentDay = chi.weekday;
 
   // Only process during the 8–9am Texas window (covers CST + CDT).
   if (!SEND_HOURS.includes(currentHour)) {
     return { message: `Skipped - current Texas time is ${currentHour}:00, outside send window ${SEND_HOURS.join("/")}` };
   }
 
-  // Get today's date in Texas timezone for duplicate prevention
-  const texasDateStr = texasNow.toLocaleDateString("en-CA"); // YYYY-MM-DD
+  // Today's date in Chicago for duplicate prevention.
+  const texasDateStr = chi.dateStr; // YYYY-MM-DD
 
   const { data: campaigns, error: campErr } = await supabase
     .from("campaigns")
@@ -125,10 +129,10 @@ async function processCampaigns(supabase: SupabaseClient, baseUrl: string) {
     }
 
     const maxSends = campaign.max_sends_per_day ?? settings?.max_sends_per_day ?? 500;
-    // Reset at Texas midnight, not UTC midnight — see comment in
-    // process-campaign-queue/route.ts for the rationale.
-    const todayStart = new Date(now.toLocaleString("en-US", { timeZone: TEXAS_TIMEZONE }));
-    todayStart.setHours(0, 0, 0, 0);
+    // Reset at Chicago midnight (DST-correct via Intl) — old code zeroed the
+    // hour in server-local time, which on UTC hosts shifted the window 5–6h
+    // earlier than actual Texas midnight and miscounted the daily quota.
+    const todayStart = chicagoMidnightUtc(now);
 
     const { count: sentToday } = await supabase
       .from("campaign_send_log")
