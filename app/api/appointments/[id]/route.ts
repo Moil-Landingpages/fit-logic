@@ -12,10 +12,10 @@ interface PatchBody {
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const sb = serverClient();
-  const id = params.id;
+  const { id } = await params;
   let body: PatchBody;
   try {
     body = (await req.json()) as PatchBody;

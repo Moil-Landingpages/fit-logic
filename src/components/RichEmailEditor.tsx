@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Toggle } from "@/components/ui/toggle";
 import { Separator } from "@/components/ui/separator";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger, PopoverAnchor } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -249,36 +249,60 @@ export function RichEmailEditor({
     }
   };
 
-  // Handle link insertion
+  // Handle link insertion. Opens the popover whether or not the user has
+  // selected text — if they haven't, the URL itself becomes the link text
+  // when they confirm.
   const handleLinkClick = () => {
     const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0 || selection.toString().length === 0) {
-      return;
+    // Save the exact range NOW before the input steals focus. Range may be
+    // a collapsed cursor (no selection) — that's fine, insertLink handles
+    // both cases.
+    if (selection && selection.rangeCount > 0 && editorRef.current?.contains(selection.anchorNode)) {
+      savedLinkRange.current = selection.getRangeAt(0).cloneRange();
+    } else {
+      savedLinkRange.current = null;
     }
-    // Save the exact range NOW before the input steals focus
-    savedLinkRange.current = selection.getRangeAt(0).cloneRange();
     setShowLinkInput(true);
     setTimeout(() => linkInputRef.current?.focus(), 0);
   };
 
   const insertLink = (overrideUrl?: string) => {
-    const urlToUse = overrideUrl ?? linkUrl;
-    if (urlToUse && editorRef.current && savedLinkRange.current) {
-      // Restore the editor focus and the saved selection
-      editorRef.current.focus();
-      const sel = window.getSelection();
-      if (sel) {
-        sel.removeAllRanges();
-        sel.addRange(savedLinkRange.current);
-      }
-      document.execCommand("createLink", false, urlToUse);
-      // Make all created links open in new tab and have blue underline style
-      editorRef.current.querySelectorAll('a').forEach((a) => {
-        a.setAttribute('target', '_blank');
-        a.setAttribute('rel', 'noopener noreferrer');
-      });
-      onChange(editorRef.current.innerHTML);
+    const urlToUse = (overrideUrl ?? linkUrl).trim();
+    if (!urlToUse || !editorRef.current) {
+      savedLinkRange.current = null;
+      setShowLinkInput(false);
+      setLinkUrl("");
+      return;
     }
+
+    // Restore the editor focus and the saved selection (if any).
+    editorRef.current.focus();
+    const sel = window.getSelection();
+    if (sel && savedLinkRange.current) {
+      sel.removeAllRanges();
+      sel.addRange(savedLinkRange.current);
+    }
+
+    const hasSelectedText =
+      savedLinkRange.current && !savedLinkRange.current.collapsed
+      && savedLinkRange.current.toString().length > 0;
+
+    if (hasSelectedText) {
+      // Wrap the existing selected text as a link.
+      document.execCommand("createLink", false, urlToUse);
+    } else {
+      // No selection — insert the URL itself as the link text at the cursor.
+      const safeText = urlToUse.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const html = `<a href="${urlToUse}" target="_blank" rel="noopener noreferrer">${safeText}</a>&nbsp;`;
+      insertAtCursor(html);
+    }
+
+    // Make all links in the editor open in new tab.
+    editorRef.current.querySelectorAll('a').forEach((a) => {
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+    });
+    onChange(editorRef.current.innerHTML);
     savedLinkRange.current = null;
     setShowLinkInput(false);
     setLinkUrl("");
@@ -637,7 +661,11 @@ export function RichEmailEditor({
             
             <Separator orientation="vertical" className="h-6 mx-1" />
             
-            {/* Insert */}
+            {/* Insert. PopoverAnchor (not Trigger) positions the popover
+                without intercepting clicks — the trigger button is fully
+                controlled by `showLinkInput` state. Using PopoverTrigger
+                caused a mousedown→open + click→close race that flashed the
+                popover open for a frame and immediately dismissed it. */}
             <Popover
               open={showLinkInput}
               onOpenChange={(o) => {
@@ -648,19 +676,21 @@ export function RichEmailEditor({
                 }
               }}
             >
-              <PopoverTrigger asChild>
+              <PopoverAnchor asChild>
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-8 px-2 gap-1.5"
                   // onMouseDown fires before focus moves, so we capture the
                   // current selection range BEFORE the popover takes focus.
+                  // preventDefault keeps the editor's contenteditable
+                  // selection alive while the button takes focus.
                   onMouseDown={(e) => { e.preventDefault(); handleLinkClick(); }}
                 >
                   <Link className="h-4 w-4" />
                   <span className="text-xs">Link</span>
                 </Button>
-              </PopoverTrigger>
+              </PopoverAnchor>
               <PopoverContent
                 side="bottom"
                 align="start"
