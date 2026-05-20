@@ -27,6 +27,13 @@ export interface SequenceStep {
 interface SequenceBuilderProps {
   steps: SequenceStep[];
   onChange: (steps: SequenceStep[]) => void;
+  /**
+   * How delay_days is interpreted at send time. Default 'relative' preserves
+   * the original behavior (days since previous step's send). Anchored modes
+   * interpret delay_days as days before/after the recipient's anchor date
+   * (currently sourced from the patient's next scheduled appointment).
+   */
+  anchorType?: "relative" | "before_appointment" | "after_appointment";
 }
 
 /**
@@ -62,7 +69,9 @@ const COLD_EMAIL_TIPS: Record<number, string> = {
   5: "Break-up email — Let them know this is your last follow-up. Often gets highest reply rates.",
 };
 
-export function SequenceBuilder({ steps, onChange }: SequenceBuilderProps) {
+export function SequenceBuilder({ steps, onChange, anchorType = "relative" }: SequenceBuilderProps) {
+  const isAnchored = anchorType !== "relative";
+  const anchorVerb = anchorType === "after_appointment" ? "after" : "before";
   const { toast } = useToast();
   const [expandedStep, setExpandedStep] = useState<string | null>(steps[0]?.id || null);
   const [previewStep, setPreviewStep] = useState<string | null>(null);
@@ -88,12 +97,18 @@ export function SequenceBuilder({ steps, onChange }: SequenceBuilderProps) {
 
   const addStep = () => {
     const nextNum = steps.length + 1;
+    // For anchored sequences, EVERY step has a meaningful offset (including
+    // step 1 — "send 5 days before appointment"). For relative sequences,
+    // step 1 fires immediately on enrollment so its delay_days is 0.
+    const defaultDelay = isAnchored
+      ? (RECOMMENDED_DELAYS[nextNum - 1] ?? 3)
+      : (nextNum === 1 ? 0 : RECOMMENDED_DELAYS[nextNum - 1] ?? 7);
     const newStep: SequenceStep = {
       id: `step-${Date.now()}`,
       step_number: nextNum,
       subject: "",
       body_html: "",
-      delay_days: nextNum === 1 ? 0 : RECOMMENDED_DELAYS[nextNum - 1] ?? 7,
+      delay_days: defaultDelay,
     };
     onChange([...steps, newStep]);
     setExpandedStep(newStep.id);
@@ -138,6 +153,9 @@ export function SequenceBuilder({ steps, onChange }: SequenceBuilderProps) {
   };
 
   const totalDays = steps.reduce((sum, s) => sum + s.delay_days, 0);
+  const summary = isAnchored
+    ? `${steps.length} email${steps.length !== 1 ? "s" : ""} anchored to appointment date`
+    : `${steps.length} email${steps.length !== 1 ? "s" : ""} over ${totalDays} days`;
 
   return (
     <TooltipProvider>
@@ -145,9 +163,7 @@ export function SequenceBuilder({ steps, onChange }: SequenceBuilderProps) {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="font-heading font-semibold text-sm text-foreground">Email Sequence</h3>
-            <p className="text-xs text-muted-foreground">
-              {steps.length} email{steps.length !== 1 ? "s" : ""} over {totalDays} days
-            </p>
+            <p className="text-xs text-muted-foreground">{summary}</p>
           </div>
           {steps.length < 5 && (
             <Button size="sm" variant="outline" onClick={addStep}>
@@ -211,11 +227,20 @@ export function SequenceBuilder({ steps, onChange }: SequenceBuilderProps) {
           const isPreviewing = previewStep === step.id;
           const recommendedDelay = RECOMMENDED_DELAYS[idx];
 
+          // In anchored mode every step (including step 1) has a meaningful
+          // offset — the pill renders above all of them. In relative mode the
+          // first step fires immediately so it has no preceding wait.
+          const showPill = isAnchored || idx > 0;
+
           return (
             <div key={step.id}>
-              {idx > 0 && (() => {
-                const isRecommended = step.delay_days === recommendedDelay;
-                const description = RESEARCH_DELAY_OPTIONS.find(o => o.value === step.delay_days)?.description ?? "Custom spacing";
+              {showPill && (() => {
+                const isRecommended = !isAnchored && step.delay_days === recommendedDelay;
+                const description = isAnchored
+                  ? `${step.delay_days} day${step.delay_days === 1 ? "" : "s"} ${anchorVerb} the appointment`
+                  : RESEARCH_DELAY_OPTIONS.find(o => o.value === step.delay_days)?.description ?? "Custom spacing";
+                const pillLabel = isAnchored ? "Send" : "Wait";
+                const pillSuffix = isAnchored ? `${anchorVerb} appt.` : null;
                 return (
                   <div className="relative flex items-stretch py-1 pl-7 pr-4 group">
                     {/* Vertical connector spine */}
@@ -226,7 +251,7 @@ export function SequenceBuilder({ steps, onChange }: SequenceBuilderProps) {
                     </div>
                     {/* Pill content */}
                     <div className="ml-6 flex items-center gap-2 rounded-full border border-border/70 bg-card px-3 py-1.5 shadow-sm hover:border-primary/40 transition-colors">
-                      <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Wait</span>
+                      <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">{pillLabel}</span>
                       <Select
                         value={String(step.delay_days)}
                         onValueChange={(v) => updateStep(step.id, { delay_days: parseInt(v) })}
@@ -252,6 +277,9 @@ export function SequenceBuilder({ steps, onChange }: SequenceBuilderProps) {
                           ))}
                         </SelectContent>
                       </Select>
+                      {pillSuffix && (
+                        <span className="text-[10px] font-medium text-primary uppercase tracking-wide">{pillSuffix}</span>
+                      )}
                       {isRecommended && (
                         <span className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wide text-primary px-1.5 py-0.5 rounded-full bg-primary/10 border border-primary/20">
                           ★ Best

@@ -7,6 +7,7 @@ import { tryClaimCampaignLock, releaseCampaignLock } from "@/lib/campaign-lock";
 import { signUnsubToken } from "@/lib/unsub-token";
 import { syncContactOnEmailSent } from "@/lib/contact-sync";
 import { chicagoMidnightUtc } from "@/lib/texas-time";
+import { pickNextActionableStep, type AnchorType } from "@/lib/sequence-anchor";
 
 async function updateCampaignStats(supabase: SupabaseClient, campaignId: string) {
   const { data } = await supabase.from("campaign_send_log").select("status, opened_at, clicked_at").eq("campaign_id", campaignId);
@@ -138,6 +139,13 @@ export async function POST(req: NextRequest) {
       }
 
       const isSequence = campaign.campaign_type === "sequence";
+      // anchor_type was added in migration 20260519000001. If the column
+      // hasn't been applied yet the field is undefined and we fall back to
+      // the legacy 'relative' semantics — which is what older campaigns
+      // expect anyway. Same fallback rules apply to campaign_recipients.anchor_at.
+      const anchorType: AnchorType =
+        ((campaign as { anchor_type?: string }).anchor_type as AnchorType | undefined) ?? "relative";
+      const isAnchored = anchorType !== "relative";
       type SequenceRow = {
         step_number: number;
         delay_days: number;
@@ -238,13 +246,31 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      const { data: pendingRecipients } = await supabase
+      // anchor_at ships in the same migration as campaigns.anchor_type. If
+      // the migration isn't applied, anchorType falls back to 'relative' and
+      // we skip the new column to avoid a "column does not exist" error on
+      // older DBs. The dynamic select string defeats Supabase's static type
+      // inference, so we cast the result shape ourselves.
+      type RecipientRow = {
+        id: string;
+        email: string;
+        name: string | null;
+        patient_id: string | null;
+        current_step: number | null;
+        status: string;
+        anchor_at?: string | null;
+      };
+      const recipientCols = isAnchored
+        ? "id, email, name, patient_id, current_step, status, anchor_at"
+        : "id, email, name, patient_id, current_step, status";
+      const { data: pendingRecipientsRaw } = await supabase
         .from("campaign_recipients")
-        .select("id, email, name, patient_id, current_step, status")
+        .select(recipientCols as unknown as "*")
         .eq("campaign_id", campaign.id)
         .eq("status", "pending")
         .order("created_at")
         .limit(Math.min(remaining, 500));
+      const pendingRecipients = pendingRecipientsRaw as unknown as RecipientRow[] | null;
 
       // Single batch fetch of ALL referenced patients — kills the per-recipient
       // N+1 that was previously firing inside the send loop. We need three
@@ -359,38 +385,11 @@ export async function POST(req: NextRequest) {
 
         if (isSequence) {
           const currentStep = recipient.current_step ?? 0;
-          const nextStep = sequences.find((s) => s.step_number === currentStep + 1);
-          if (!nextStep) {
-            // Two real-world causes:
-            //  1. Sequence is empty / step 1 never saved → currentStep=0, no
-            //     step_number=1 row. This is a CONFIG bug — surface it loud.
-            //  2. Recipient already advanced past the last step → mark as
-            //     completed so we don't keep checking on every cron run.
-            const isFirstSendAttempt = currentStep === 0;
-            const reason = isFirstSendAttempt
-              ? `Sequence has no step ${currentStep + 1} — only steps [${sequences.map((s) => s.step_number).join(", ") || "none"}] exist. Build/edit the sequence and add step 1.`
-              : "Sequence completed (no further steps)";
-            await supabase
-              .from("campaign_recipients")
-              .update({ status: "completed", last_error: reason })
-              .eq("id", recipient.id);
-            if (isFirstSendAttempt) {
-              skipReasons.no_sequence_step++;
-              skippedCount++;
-              if (!firstSendError) firstSendError = reason;
-              console.warn("[process-campaign-queue] recipient skipped — missing sequence step", {
-                recipient: recipient.email,
-                current_step: currentStep,
-                looking_for: currentStep + 1,
-                available_steps: sequences.map((s) => s.step_number),
-              });
-            } else {
-              skipReasons.sequence_completed++;
-            }
-            continue;
-          }
-
-          if (nextStep.delay_days > 0) {
+          // For relative sequences we need the previous step's last successful
+          // send timestamp to honor the days-since-prev-step gate. Anchored
+          // sequences don't use this so we skip the lookup.
+          let lastSentAt: string | null = null;
+          if (!isAnchored && (sequences.find((s) => s.step_number === currentStep + 1)?.delay_days ?? 0) > 0) {
             const { data: lastSend } = await supabase
               .from("campaign_send_log")
               .select("sent_at")
@@ -400,16 +399,86 @@ export async function POST(req: NextRequest) {
               .order("sent_at", { ascending: false })
               .limit(1)
               .maybeSingle();
-
-            if (lastSend?.sent_at) {
-              const elapsed = now.getTime() - new Date(lastSend.sent_at).getTime();
-              if (elapsed < nextStep.delay_days * 86_400_000) {
-                skipReasons.sequence_delay++;
-                continue;
-              }
-            }
+            lastSentAt = lastSend?.sent_at ?? null;
           }
 
+          const pick = pickNextActionableStep({
+            anchorType,
+            sequences,
+            recipient: {
+              current_step: currentStep,
+              anchor_at: (recipient as { anchor_at?: string | null }).anchor_at ?? null,
+            },
+            lastSentAt,
+            now,
+          });
+
+          // Log past-due skips so the operator can see what happened. We bump
+          // current_step to the last skipped step before potentially sending
+          // the step the helper actually selected — without this, the next
+          // cron run would re-evaluate the same skipped steps.
+          for (const skipped of pick.skippedOverdue) {
+            await supabase.from("campaign_send_log").insert({
+              campaign_id: campaign.id,
+              recipient_id: recipient.id,
+              step_number: skipped.step_number,
+              status: "skipped",
+              error_message: "Past-due — target send date already passed before enrollment",
+              tracking_id: crypto.randomUUID(),
+            });
+          }
+          if (pick.effectiveCurrentStep !== currentStep) {
+            await supabase
+              .from("campaign_recipients")
+              .update({ current_step: pick.effectiveCurrentStep })
+              .eq("id", recipient.id);
+          }
+
+          if (pick.decision.action === "complete") {
+            const reason = pick.decision.isFirstSendAttempt
+              ? `Sequence has no step ${currentStep + 1} — only steps [${pick.decision.availableSteps.join(", ") || "none"}] exist. Build/edit the sequence and add step 1.`
+              : "Sequence completed (no further steps)";
+            await supabase
+              .from("campaign_recipients")
+              .update({ status: "completed", last_error: reason })
+              .eq("id", recipient.id);
+            if (pick.decision.isFirstSendAttempt) {
+              skipReasons.no_sequence_step++;
+              skippedCount++;
+              if (!firstSendError) firstSendError = reason;
+              console.warn("[process-campaign-queue] recipient skipped — missing sequence step", {
+                recipient: recipient.email,
+                current_step: currentStep,
+                available_steps: pick.decision.availableSteps,
+              });
+            } else {
+              skipReasons.sequence_completed++;
+            }
+            continue;
+          }
+          if (pick.decision.action === "wait") {
+            skipReasons.sequence_delay++;
+            continue;
+          }
+          if (pick.decision.action === "missing_anchor") {
+            await supabase
+              .from("campaign_recipients")
+              .update({
+                status: "failed",
+                last_error: `Anchored sequence (${anchorType}) but recipient has no anchor_at — set anchor_at or switch the campaign to relative mode`,
+              })
+              .eq("id", recipient.id);
+            failedCount++;
+            if (!firstSendError) firstSendError = "Anchored recipient missing anchor_at";
+            continue;
+          }
+
+          // Re-locate the full SequenceRow — the helper only returns the lite
+          // shape (step_number + delay_days). Stash the step_number in a local
+          // first; TS doesn't preserve discriminated-union narrowing across
+          // .find()'s callback boundary.
+          const sendStepNum = pick.decision.step.step_number;
+          const nextStep = sequences.find((s) => s.step_number === sendStepNum)!;
           subject = nextStep.subject_override ?? "";
           bodyHtml = nextStep.body_html_override ?? "";
           stepNumber = nextStep.step_number;

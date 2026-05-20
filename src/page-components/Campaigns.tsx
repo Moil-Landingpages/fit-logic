@@ -51,6 +51,7 @@ interface CampaignRow {
   auto_schedule?: boolean; max_sends_per_day?: number;
   business_hours_start?: number; business_hours_end?: number;
   business_days?: string[]; recipient_count?: number; sent_count?: number;
+  anchor_type?: "relative" | "before_appointment" | "after_appointment";
 }
 
 // Re-export SequenceBuilder's type so attachments stay structurally compatible
@@ -318,18 +319,96 @@ const Campaigns_Page = () => {
   const saveCampaignMut = useMutation({
     mutationFn: async (c: Partial<CampaignRow>) => {
       const campaignType = c.campaign_type || "single";
+      // anchor_type only applies to sequence campaigns. Single-shot campaigns
+      // always behave like 'relative' — there's nothing to anchor against.
+      const anchorType: "relative" | "before_appointment" | "after_appointment" =
+        campaignType === "sequence"
+          ? ((c as { anchor_type?: string }).anchor_type as "relative" | "before_appointment" | "after_appointment" | undefined) ?? "relative"
+          : "relative";
       const campaignData: any = {
         name: c.name,
         template_id: campaignType === "single" ? c.template_id : null,
         segment_id: c.segment_id || null,
         scheduled_at: c.scheduled_at,
         campaign_type: campaignType,
+        anchor_type: anchorType,
         auto_schedule: scheduleConfig.auto_schedule,
         max_sends_per_day: scheduleConfig.max_sends_per_day,
         business_hours_start: scheduleConfig.business_hours_start,
         business_hours_end: scheduleConfig.business_hours_end,
         business_days: scheduleConfig.business_days,
         recipient_count: recipients.length,
+      };
+
+      // For anchor-based sequences, pre-fetch each patient's next scheduled
+      // appointment so we can set campaign_recipients.anchor_at at insert time.
+      // Patients without a future appointment get null anchor_at and the queue
+      // will mark them failed at send time with a clear error.
+      type AnchorMatch = { id: string; start_at: string };
+      const patientAnchorMap = new Map<string, AnchorMatch>();
+      if (anchorType !== "relative") {
+        const patientIds = Array.from(
+          new Set(recipients.map((r) => r.patient_id).filter((id): id is string => !!id)),
+        );
+        if (patientIds.length > 0) {
+          // appointments was added in migration 20260510000003 but the
+          // auto-generated Supabase types don't include it yet, so we go
+          // through `any` to avoid a "not assignable" overload mismatch.
+          const apptRes = await (supabase as unknown as {
+            from: (t: string) => {
+              select: (cols: string) => {
+                in: (col: string, vals: string[]) => {
+                  eq: (col: string, val: string) => {
+                    gt: (col: string, val: string) => {
+                      order: (col: string, opts: { ascending: boolean }) => Promise<{
+                        data: { id: string; patient_id: string; start_at: string }[] | null;
+                        error: { message: string } | null;
+                      }>;
+                    };
+                  };
+                };
+              };
+            };
+          })
+            .from("appointments")
+            .select("id, patient_id, start_at")
+            .in("patient_id", patientIds)
+            .eq("status", "scheduled")
+            .gt("start_at", new Date().toISOString())
+            .order("start_at", { ascending: true });
+          if (apptRes.error) {
+            console.warn("[Campaigns.save] appointment lookup for anchor_at failed", { error: apptRes.error.message });
+          }
+          for (const a of apptRes.data ?? []) {
+            // Earliest future appointment wins — array is ASC ordered, so the
+            // first row per patient is the next-scheduled one.
+            if (!patientAnchorMap.has(a.patient_id)) {
+              patientAnchorMap.set(a.patient_id, { id: a.id, start_at: a.start_at });
+            }
+          }
+        }
+      }
+
+      // Return type is widened through `any` because the auto-generated
+      // Supabase types don't yet include anchor_at / anchor_appointment_id
+      // (added in migration 20260519000001), so the strictly-typed insert()
+      // overload rejects them.
+      const buildRecipientRow = (r: Recipient, campaignId: string): any => {
+        const base: Record<string, unknown> = {
+          campaign_id: campaignId,
+          email: r.email,
+          name: r.name,
+          patient_id: r.patient_id || null,
+          source: r.source,
+        };
+        if (anchorType !== "relative" && r.patient_id) {
+          const match = patientAnchorMap.get(r.patient_id);
+          if (match) {
+            base.anchor_at = match.start_at;
+            base.anchor_appointment_id = match.id;
+          }
+        }
+        return base;
       };
 
       let campaignId: string;
@@ -354,10 +433,7 @@ const Campaigns_Page = () => {
         const newRecs = recipients.filter(r => !trackedEmails.has(r.email.toLowerCase()));
         if (newRecs.length > 0) {
           await supabase.from("campaign_recipients").insert(
-            newRecs.map(r => ({
-              campaign_id: campaignId, email: r.email, name: r.name,
-              patient_id: r.patient_id || null, source: r.source,
-            }))
+            newRecs.map(r => buildRecipientRow(r, campaignId))
           );
         }
 
@@ -385,10 +461,7 @@ const Campaigns_Page = () => {
         // Save recipients (new campaign — all are new)
         if (recipients.length > 0) {
           await supabase.from("campaign_recipients").insert(
-            recipients.map(r => ({
-              campaign_id: campaignId, email: r.email, name: r.name,
-              patient_id: r.patient_id || null, source: r.source,
-            }))
+            recipients.map(r => buildRecipientRow(r, campaignId))
           );
         }
       }
@@ -525,6 +598,7 @@ const Campaigns_Page = () => {
       template_id: campaign.template_id,
       segment_id: campaign.segment_id,
       campaign_type: campaign.campaign_type,
+      anchor_type: campaign.anchor_type ?? "relative",
       auto_schedule: campaign.auto_schedule,
       max_sends_per_day: campaign.max_sends_per_day,
       business_hours_start: campaign.business_hours_start,
@@ -533,13 +607,29 @@ const Campaigns_Page = () => {
     }).select().single();
     if (error || !newCampaign) { toast({ title: "Duplicate failed", variant: "destructive" }); return; }
 
-    // Copy pending recipients (don't copy sent/opened — they're historical)
-    const { data: existingRecs } = await supabase
-      .from("campaign_recipients").select("email, name, patient_id, source")
+    // Copy pending recipients (don't copy sent/opened — they're historical).
+    // For anchored campaigns we carry anchor_at/anchor_appointment_id over so
+    // the duplicate has the same per-recipient schedule. If anchors are now
+    // in the past, the queue's overdue-skip logic handles them gracefully.
+    const isAnchored = (campaign.anchor_type ?? "relative") !== "relative";
+    const recipientCols = isAnchored
+      ? "email, name, patient_id, source, anchor_at, anchor_appointment_id"
+      : "email, name, patient_id, source";
+    const { data: existingRecs } = await (supabase
+      .from("campaign_recipients") as unknown as {
+        select: (cols: string) => {
+          eq: (col: string, val: string) => {
+            eq: (col: string, val: string) => Promise<{ data: Record<string, unknown>[] | null }>;
+          };
+        };
+      })
+      .select(recipientCols)
       .eq("campaign_id", campaign.id).eq("status", "pending");
     if (existingRecs?.length) {
-      await supabase.from("campaign_recipients").insert(
-        existingRecs.map(r => ({ ...r, campaign_id: newCampaign.id }))
+      await (supabase.from("campaign_recipients") as unknown as {
+        insert: (rows: Record<string, unknown>[]) => Promise<{ error: { message: string } | null }>;
+      }).insert(
+        existingRecs.map((r: Record<string, unknown>) => ({ ...r, campaign_id: newCampaign.id }))
       );
     }
 
@@ -1165,7 +1255,43 @@ const Campaigns_Page = () => {
               {editingCampaign?.campaign_type === "sequence" && (
                 <>
                   <Separator />
-                  <SequenceBuilder steps={sequenceSteps} onChange={setSequenceSteps} />
+                  <div>
+                    <Label className="text-sm">Trigger</Label>
+                    <Select
+                      value={(editingCampaign as { anchor_type?: string }).anchor_type || "relative"}
+                      onValueChange={v =>
+                        setEditingCampaign(p => ({
+                          ...p,
+                          anchor_type: v as "relative" | "before_appointment" | "after_appointment",
+                        } as Partial<CampaignRow>))
+                      }
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="relative">Standard — each step waits N days after the previous one</SelectItem>
+                        <SelectItem value="before_appointment">Before appointment — each step fires N days before the patient&apos;s next appointment</SelectItem>
+                        <SelectItem value="after_appointment">After appointment — each step fires N days after the patient&apos;s next appointment</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {(editingCampaign as { anchor_type?: string }).anchor_type &&
+                      (editingCampaign as { anchor_type?: string }).anchor_type !== "relative" && (
+                      <p className="text-[11px] text-muted-foreground mt-1.5">
+                        Each recipient is anchored to their next scheduled appointment at the time they&apos;re added.
+                        Patients without a future scheduled appointment will fail to send — add one first.
+                      </p>
+                    )}
+                  </div>
+                  <SequenceBuilder
+                    steps={sequenceSteps}
+                    onChange={setSequenceSteps}
+                    anchorType={
+                      ((editingCampaign as { anchor_type?: string }).anchor_type as
+                        | "relative"
+                        | "before_appointment"
+                        | "after_appointment"
+                        | undefined) ?? "relative"
+                    }
+                  />
                 </>
               )}
           </div>
