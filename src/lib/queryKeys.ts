@@ -14,6 +14,7 @@ export const QK = {
   referrals:          ["referrals"]           as const,
   intakeSubmissions:  ["intake_submissions"]  as const,
   intakeForms:        ["intake_forms"]        as const,
+  quizLeadsCount:     ["quiz_leads_count"]    as const,
   faqs:               ["faqs"]               as const,
   staff:              ["staff"]              as const,
   settings:           ["settings"]           as const,

@@ -17,14 +17,14 @@ function ThankYouInner() {
     <div className="space-y-8">
       <section className="text-center space-y-3">
         <span className="inline-block rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-          Thanks — we got your answers
+          ✓ Your detailed result is on its way
         </span>
         <h1 className="font-heading text-3xl sm:text-4xl font-bold tracking-tight">
-          Your hormone-health snapshot
+          Check your inbox shortly
         </h1>
         <p className="text-muted-foreground max-w-xl mx-auto">
-          This isn&apos;t a diagnosis — it&apos;s a starting point. Use it to decide whether digging
-          deeper makes sense for you right now.
+          We&apos;ve saved your answers and a clinician-reviewed breakdown is being prepared.
+          You&apos;ll receive it by email within one business day.
         </p>
       </section>
 
