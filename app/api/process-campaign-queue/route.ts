@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { serverClient } from "@/lib/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendEmail, wrapEmailHtml, sanitizeEmailHtml } from "@/lib/emailSender";
+import { loadNewsletterShellContext, wrapNewsletter } from "@/lib/newsletter-send";
 import { applyEmailVars, buildPatientVars } from "@/lib/email-vars";
 import { tryClaimCampaignLock, releaseCampaignLock } from "@/lib/campaign-lock";
 import { signUnsubToken } from "@/lib/unsub-token";
@@ -211,6 +212,13 @@ export async function POST(req: NextRequest) {
       let templateSubject = "";
       let templateBody = "";
       let templateAttachments: { filename: string; content: string; mimeType: string }[] = [];
+      // Newsletter campaigns ship inside the branded shell (logo header,
+      // clinic footer, medical disclaimer) instead of the generic wrapper.
+      // Returns null for ordinary campaigns and on pre-migration databases,
+      // in which case the existing wrapEmailHtml path is used unchanged.
+      const newsletterCtx = isSequence
+        ? null
+        : await loadNewsletterShellContext(supabase, campaign.template_id);
       if (!isSequence && campaign.template_id) {
         // Same defensive pattern as the sequence load: try with attachments,
         // fall back without if the column isn't on this DB yet.
@@ -527,11 +535,18 @@ export async function POST(req: NextRequest) {
           return `href="${clickUrl}"`;
         });
 
-        const finalHtml = wrapEmailHtml({
-          bodyFragment: trackedBody,
-          trackingPixelUrl: trackPixel,
-          unsubscribeUrl: unsubLink,
-        });
+        const finalHtml = newsletterCtx
+          ? wrapNewsletter({
+              ctx: newsletterCtx,
+              bodyFragment: trackedBody,
+              unsubscribeUrl: unsubLink,
+              trackingPixelUrl: trackPixel,
+            })
+          : wrapEmailHtml({
+              bodyFragment: trackedBody,
+              trackingPixelUrl: trackPixel,
+              unsubscribeUrl: unsubLink,
+            });
 
         await supabase.from("campaign_send_log").insert({ campaign_id: campaign.id, recipient_id: recipient.id, step_number: stepNumber, status: "queued", tracking_id: trackingId });
 

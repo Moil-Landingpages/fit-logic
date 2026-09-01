@@ -11,6 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import { VerificationChecklist, type GenerationVerification } from "@/components/EmailDesignTools";
 import { EmailPreview } from "@/components/EmailPreview";
 import { RichEmailEditor } from "@/components/RichEmailEditor";
 import type { Segment } from "@/lib/campaign-data";
@@ -31,6 +33,7 @@ interface AIWizardResult {
   sendTimeRecommendation: string;
   rationale: string;
   emails: GeneratedEmail[];
+  verification?: GenerationVerification;
 }
 
 interface AISequenceWizardProps {
@@ -59,6 +62,12 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
   const [emailCount, setEmailCount] = useState("3");
   const [tone, setTone] = useState("professional");
   const [additionalContext, setAdditionalContext] = useState("");
+  // Grounding controls, mirroring the single-email creator: with source
+  // material supplied and strict mode on, the model may not introduce facts,
+  // dates or statistics that are not in it.
+  const [sourceMaterial, setSourceMaterial] = useState("");
+  const [strictGrounding, setStrictGrounding] = useState(true);
+  const [verified, setVerified] = useState(false);
   const [result, setResult] = useState<AIWizardResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [previewEmail, setPreviewEmail] = useState<GeneratedEmail | null>(null);
@@ -77,6 +86,8 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
           segments: segments.map(s => ({ name: s.name, description: s.description, estimatedCount: s.estimatedCount })),
           mode: "sequence",
           emailCount: parseInt(emailCount),
+          sourceMaterial: sourceMaterial.trim() || undefined,
+          strictGrounding: strictGrounding && !!sourceMaterial.trim(),
         }),
       });
       const data = await res.json();
@@ -107,6 +118,7 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
         };
         setResult(normalized);
       }
+      setVerified(false);
       setStep("review");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to generate");
@@ -135,6 +147,9 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
     setEmailCount("3");
     setTone("professional");
     setAdditionalContext("");
+    setSourceMaterial("");
+    setStrictGrounding(true);
+    setVerified(false);
     setResult(null);
     setError(null);
     setPreviewEmail(null);
@@ -245,6 +260,29 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
                 />
               </div>
 
+              <div className="rounded-lg border p-3 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <Label className="text-sm">Source material (optional)</Label>
+                    <p className="text-[10px] text-muted-foreground">
+                      Paste an article or notes so the copy is built from real content.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Switch checked={strictGrounding} onCheckedChange={setStrictGrounding} id="seq-strict" />
+                    <Label htmlFor="seq-strict" className="text-[10px] leading-tight cursor-pointer">
+                      Only use<br />facts from source
+                    </Label>
+                  </div>
+                </div>
+                <Textarea
+                  placeholder="Paste your source article here…"
+                  value={sourceMaterial}
+                  onChange={e => setSourceMaterial(e.target.value)}
+                  className="min-h-[80px] resize-y text-xs"
+                />
+              </div>
+
               {error && (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</div>
               )}
@@ -261,6 +299,12 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
 
           {step === "review" && result && (
             <div className="space-y-4 py-2">
+
+              <VerificationChecklist
+                verification={result.verification}
+                acknowledged={verified}
+                onAcknowledgedChange={setVerified}
+              />
 
               {/* ── Sequence Relation Map ── */}
               <div className="rounded-xl border bg-muted/20 p-4">
@@ -532,7 +576,12 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
               <Button variant="outline" onClick={() => setStep("details")}>
                 <ArrowLeft className="h-3.5 w-3.5 mr-1" />Regenerate
               </Button>
-              <Button className="gradient-brand text-primary-foreground" onClick={handleAccept}>
+              <Button
+                className="gradient-brand text-primary-foreground"
+                onClick={handleAccept}
+                disabled={!verified}
+                title={verified ? undefined : "Confirm the accuracy check first"}
+              >
                 <Check className="h-4 w-4 mr-1.5" />Use This Campaign
               </Button>
             </>

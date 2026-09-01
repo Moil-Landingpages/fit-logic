@@ -4,11 +4,12 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { QK } from "@/lib/queryKeys";
+import { BrandKitTab } from "@/components/BrandKitTab";
 import { toast } from "sonner";
 import {
   Settings as SettingsIcon, Building2, Users, Plug, Mail,
   Save, Trash2, Plus, CheckCircle2, ExternalLink,
-  Clock, Loader2, Tag, FlaskConical,
+  Clock, Loader2, Tag, FlaskConical, Palette,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
@@ -1196,7 +1197,7 @@ const Settings = () => {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="overflow-x-auto -mx-1 px-1">
-          <TabsList className="grid grid-cols-6 w-full min-w-[480px] max-w-3xl">
+          <TabsList className="grid grid-cols-7 w-full min-w-[560px] max-w-4xl">
             <TabsTrigger value="practice">
               <Building2 className="h-3.5 w-3.5 mr-1.5 hidden sm:inline" /> Practice
             </TabsTrigger>
@@ -1214,6 +1215,9 @@ const Settings = () => {
             </TabsTrigger>
             <TabsTrigger value="links">
               <ExternalLink className="h-3.5 w-3.5 mr-1.5 hidden sm:inline" /> Links
+            </TabsTrigger>
+            <TabsTrigger value="brand">
+              <Palette className="h-3.5 w-3.5 mr-1.5 hidden sm:inline" /> Brand
             </TabsTrigger>
           </TabsList>
         </div>
@@ -1235,6 +1239,16 @@ const Settings = () => {
         </TabsContent>
         <TabsContent value="links" className="mt-6">
           <PracticeLinksTab />
+        </TabsContent>
+        <TabsContent value="brand" className="mt-6">
+          {/* Remount when the loaded row changes so the form picks up saved
+              values instead of holding its initial (default) state. */}
+          <BrandKitTab
+            key={rawSettings?.id ?? "new"}
+            settings={settings}
+            onSave={(u) => updateSettings.mutate(u as Partial<PracticeSettings>)}
+            saving={updateSettings.isPending}
+          />
         </TabsContent>
       </Tabs>
     </div>

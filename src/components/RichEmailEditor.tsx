@@ -9,7 +9,8 @@ import {
   Bold, Italic, Link, List, ListOrdered, Eye, Code, Type, Smartphone, Monitor,
   User, Building, Mail, Calendar, Variable, Search, Plus, X, Palette,
   AlignLeft, AlignCenter, AlignRight, Heading1, Heading2, Quote, Undo, Redo,
-  MousePointerClick, Check, ChevronDown, SeparatorHorizontal, Image as ImageIcon, Paperclip, Strikethrough
+  MousePointerClick, Check, ChevronDown, SeparatorHorizontal, Image as ImageIcon, Paperclip, Strikethrough,
+  ArrowUp, ArrowDown, Copy, Trash2, History, Send, Replace, AlignHorizontalJustifyCenter
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,6 +24,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { useEditorHistory } from "@/hooks/use-editor-history";
+import { DesignPanel, TestSendDialog, VersionHistoryDialog, type VersionOwner } from "@/components/EmailDesignTools";
+import type { NewsletterDesign } from "@/lib/newsletter-brand";
 
 export interface EmailAttachment {
   id: string;
@@ -42,6 +46,18 @@ interface RichEmailEditorProps {
   previewText?: string;
   attachments?: EmailAttachment[];
   onAttachmentsChange?: (attachments: EmailAttachment[]) => void;
+  /** Enables the newsletter tool row: design panel, section controls, test send. */
+  enableNewsletterTools?: boolean;
+  /** Design tokens for this email. Controlled by the parent so they can be saved. */
+  design?: NewsletterDesign | null;
+  onDesignChange?: (design: NewsletterDesign) => void;
+  /** Owning record for version history. Versions attach to a saved row. */
+  versionOwner?: VersionOwner;
+  /** Newsletter header metadata, passed through to the test send. */
+  issueLabel?: string | null;
+  newsletterTitle?: string | null;
+  /** Called when a version restore also changes subject/preview text. */
+  onRestoreMeta?: (meta: { subject?: string | null; previewText?: string | null }) => void;
 }
 
 // Available variables for insertion
@@ -85,6 +101,13 @@ export function RichEmailEditor({
   previewText,
   attachments = [],
   onAttachmentsChange,
+  enableNewsletterTools = false,
+  design = null,
+  onDesignChange,
+  versionOwner,
+  issueLabel = null,
+  newsletterTitle = null,
+  onRestoreMeta,
 }: RichEmailEditorProps) {
   const [mode, setMode] = useState<EditorMode>("visual");
   const [previewDevice, setPreviewDevice] = useState<PreviewDevice>("desktop");
@@ -129,6 +152,20 @@ export function RichEmailEditor({
   const editorRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const hasInitialized = useRef(false);
+
+  // Own undo/redo stack — see useEditorHistory for why execCommand("undo")
+  // could not cover the toolbar's programmatic DOM edits.
+  const history = useEditorHistory(value ?? "");
+
+  // Direct-manipulation selection: an <img> or a top-level content block.
+  type SelectedKind = "image" | "block" | "placeholder";
+  const [selected, setSelected] = useState<{ el: HTMLElement; kind: SelectedKind } | null>(null);
+  const selectedRef = useRef<HTMLElement | null>(null);
+  // When set, the image dialog replaces this node instead of inserting a new one.
+  const replaceTargetRef = useRef<HTMLElement | null>(null);
+
+  const [showTestSend, setShowTestSend] = useState(false);
+  const [showVersions, setShowVersions] = useState(false);
   const [lastSelection, setLastSelection] = useState<Range | null>(null);
   const savedLinkRange = useRef<Range | null>(null);
 
@@ -167,8 +204,189 @@ export function RichEmailEditor({
     if (editorRef.current && !hasInitialized.current && mounted) {
       editorRef.current.innerHTML = value || "";
       hasInitialized.current = true;
+      // Seed the stack with the loaded content so the first edit is undoable
+      // back to the original, but the load itself is not an undo step.
+      history.reset(value || "");
     }
   }, [mode, value, mounted]);
+
+  /**
+   * Single funnel for every editor mutation: notify the parent AND record an
+   * undo snapshot. Toolbar actions pass coalesce=false so each one is its own
+   * undo step; typing passes coalesce=true so a sentence is one step.
+   */
+  const pushChange = useCallback((html: string, coalesce = false) => {
+    onChange(html);
+    history.commit(html, { coalesce });
+  }, [onChange, history]);
+
+  /** Highlight the node the user clicked so direct manipulation is visible. */
+  const applySelectionOutline = useCallback((el: HTMLElement | null) => {
+    const prev = selectedRef.current;
+    if (prev && prev !== el) {
+      prev.style.outline = "";
+      prev.style.outlineOffset = "";
+    }
+    selectedRef.current = el;
+    if (el) {
+      el.style.outline = "2px solid #0e9aa7";
+      el.style.outlineOffset = "2px";
+    }
+  }, []);
+
+  /** Strip selection chrome before reading innerHTML, so it never ships in an email. */
+  const readCleanHtml = useCallback((): string => {
+    const editor = editorRef.current;
+    if (!editor) return value;
+    const marked = selectedRef.current;
+    const savedOutline = marked?.style.outline ?? "";
+    const savedOffset = marked?.style.outlineOffset ?? "";
+    if (marked) {
+      marked.style.outline = "";
+      marked.style.outlineOffset = "";
+    }
+    const html = editor.innerHTML;
+    if (marked) {
+      marked.style.outline = savedOutline;
+      marked.style.outlineOffset = savedOffset;
+    }
+    return html;
+  }, [value]);
+
+  /** The top-level block (direct child of the editor) that contains `node`. */
+  const topLevelBlockOf = useCallback((node: HTMLElement): HTMLElement | null => {
+    const editor = editorRef.current;
+    if (!editor || !editor.contains(node)) return null;
+    let cur: HTMLElement | null = node;
+    while (cur && cur.parentElement && cur.parentElement !== editor) {
+      cur = cur.parentElement;
+    }
+    return cur && cur.parentElement === editor ? cur : null;
+  }, []);
+
+  const handleEditorClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const editor = editorRef.current;
+    const target = e.target as HTMLElement | null;
+    if (!editor || !target) return;
+
+    const placeholder = target.closest<HTMLElement>("[data-nl-image-placeholder]");
+    if (placeholder && editor.contains(placeholder)) {
+      applySelectionOutline(placeholder);
+      setSelected({ el: placeholder, kind: "placeholder" });
+      return;
+    }
+
+    const img = target.closest<HTMLElement>("img");
+    if (img && editor.contains(img)) {
+      applySelectionOutline(img);
+      setSelected({ el: img, kind: "image" });
+      return;
+    }
+
+    const block = topLevelBlockOf(target);
+    if (block) {
+      applySelectionOutline(block);
+      setSelected({ el: block, kind: "block" });
+    } else {
+      applySelectionOutline(null);
+      setSelected(null);
+    }
+  }, [applySelectionOutline, topLevelBlockOf]);
+
+  const clearSelection = useCallback(() => {
+    applySelectionOutline(null);
+    setSelected(null);
+  }, [applySelectionOutline]);
+
+  /** Run a DOM mutation on the selection, then commit one undo step. */
+  const mutateSelection = useCallback((fn: (el: HTMLElement) => void) => {
+    const el = selected?.el;
+    if (!el || !editorRef.current?.contains(el)) return;
+    fn(el);
+    pushChange(readCleanHtml());
+  }, [selected, pushChange, readCleanHtml]);
+
+  /* --- image controls ------------------------------------------------ */
+
+  const setImageWidth = (pct: number) => mutateSelection((el) => {
+    const img = el as HTMLImageElement;
+    img.setAttribute("width", `${pct}%`);
+    img.style.width = `${pct}%`;
+    img.style.maxWidth = "100%";
+    img.style.height = "auto";
+  });
+
+  const setImageAlign = (align: "left" | "center" | "right") => mutateSelection((el) => {
+    const img = el as HTMLImageElement;
+    img.style.display = "block";
+    img.style.marginLeft = align === "left" ? "0" : "auto";
+    img.style.marginRight = align === "right" ? "0" : "auto";
+    // Email clients honour the parent cell's align attribute more reliably
+    // than CSS margins, so set both.
+    const cell = img.closest("td");
+    if (cell) cell.setAttribute("align", align);
+  });
+
+  const setImageAlt = (alt: string) => mutateSelection((el) => {
+    el.setAttribute("alt", alt);
+  });
+
+  /* --- block controls ------------------------------------------------ */
+
+  /** The node move/duplicate/delete act on: the enclosing top-level block. */
+  const blockForSelection = (): HTMLElement | null => {
+    const el = selected?.el;
+    if (!el) return null;
+    return topLevelBlockOf(el) ?? (el.parentElement === editorRef.current ? el : null);
+  };
+
+  const moveBlock = (dir: -1 | 1) => {
+    const block = blockForSelection();
+    const editor = editorRef.current;
+    if (!block || !editor) return;
+    const sibling = dir === -1 ? block.previousElementSibling : block.nextElementSibling;
+    if (!sibling) return;
+    if (dir === -1) editor.insertBefore(block, sibling);
+    else editor.insertBefore(sibling, block);
+    pushChange(readCleanHtml());
+  };
+
+  const duplicateBlock = () => {
+    const block = blockForSelection();
+    if (!block) return;
+    const clone = block.cloneNode(true) as HTMLElement;
+    clone.style.outline = "";
+    clone.style.outlineOffset = "";
+    block.parentElement?.insertBefore(clone, block.nextSibling);
+    pushChange(readCleanHtml());
+  };
+
+  const deleteSelection = () => {
+    const el = selected?.el;
+    if (!el) return;
+    // Deleting an image also removes the wrapper table when that table exists
+    // only to hold the image — otherwise an empty grey box is left behind.
+    let target: HTMLElement = el;
+    if (selected?.kind === "image") {
+      const table = el.closest("table");
+      if (table && table.querySelectorAll("img").length === 1 && !table.textContent?.trim()) {
+        target = table;
+      }
+    }
+    applySelectionOutline(null);
+    setSelected(null);
+    target.remove();
+    pushChange(readCleanHtml());
+  };
+
+  /** Open the image dialog in "replace" mode for the current selection. */
+  const startImageReplace = () => {
+    if (!selected) return;
+    replaceTargetRef.current = selected.el;
+    setImagePreview(null);
+    setImageUrl("");
+    setShowImageDialog(true);
+  };
 
   // Save selection before inserting
   const saveSelection = () => {
@@ -226,11 +444,11 @@ export function RichEmailEditor({
         }
         
         // Trigger change
-        onChange(editor.innerHTML);
+        pushChange(readCleanHtml());
       } else {
         // Fallback: append at end
         editor.innerHTML += html;
-        onChange(editor.innerHTML);
+        pushChange(readCleanHtml());
       }
     }
     
@@ -245,7 +463,7 @@ export function RichEmailEditor({
     }
     document.execCommand(command, false, value);
     if (editorRef.current) {
-      onChange(editorRef.current.innerHTML);
+      pushChange(readCleanHtml());
     }
   };
 
@@ -302,7 +520,7 @@ export function RichEmailEditor({
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener noreferrer');
     });
-    onChange(editorRef.current.innerHTML);
+    pushChange(readCleanHtml());
     savedLinkRange.current = null;
     setShowLinkInput(false);
     setLinkUrl("");
@@ -361,9 +579,41 @@ export function RichEmailEditor({
   // Handle editor input
   const handleEditorInput = () => {
     if (editorRef.current) {
-      onChange(editorRef.current.innerHTML);
+      // coalesce=true: a burst of typing collapses into one undo step.
+      pushChange(readCleanHtml(), true);
     }
   };
+
+  /** Restore an HTML snapshot into the live editor (undo/redo/version restore). */
+  const applySnapshot = useCallback((html: string) => {
+    applySelectionOutline(null);
+    setSelected(null);
+    if (editorRef.current) editorRef.current.innerHTML = html;
+    onChange(html);
+  }, [onChange, applySelectionOutline]);
+
+  const handleUndo = useCallback(() => {
+    const html = history.undo();
+    if (html !== null) applySnapshot(html);
+  }, [history, applySnapshot]);
+
+  const handleRedo = useCallback(() => {
+    const html = history.redo();
+    if (html !== null) applySnapshot(html);
+  }, [history, applySnapshot]);
+
+  const handleEditorKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    const mod = e.metaKey || e.ctrlKey;
+    if (!mod) return;
+    const key = e.key.toLowerCase();
+    if (key === "z" && !e.shiftKey) {
+      e.preventDefault();
+      handleUndo();
+    } else if ((key === "z" && e.shiftKey) || key === "y") {
+      e.preventDefault();
+      handleRedo();
+    }
+  }, [handleUndo, handleRedo]);
 
   const { toast } = useToast();
 
@@ -402,8 +652,31 @@ export function RichEmailEditor({
   const insertImage = () => {
     if (!imagePreview) return;
 
-    const imgHtml = `<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%"><tr><td align="center" style="background-color: #f3f4f6; border-radius: 4px;"><img src="${imagePreview}" width="100%" alt="Email image" style="max-width: 100%; height: auto; border-radius: 4px; display: block; font-family: sans-serif; font-size: 14px; color: #6b7280; text-align: center;" /></td></tr></table>`;
-    
+    const imgHtml = `<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%"><tr><td align="center" style="background-color: #f3f4f6; border-radius: 4px;"><img data-nl-image="1" src="${imagePreview}" width="100%" alt="Email image" style="max-width: 100%; height: auto; border-radius: 4px; display: block; font-family: sans-serif; font-size: 14px; color: #6b7280; text-align: center;" /></td></tr></table>`;
+
+    // Replace mode: swap the selected image's source, or turn an AI image
+    // placeholder into a real image — rather than inserting a second image
+    // underneath it.
+    const replaceTarget = replaceTargetRef.current;
+    if (mode === "visual" && replaceTarget && editorRef.current?.contains(replaceTarget)) {
+      if (replaceTarget.tagName === "IMG") {
+        replaceTarget.setAttribute("src", imagePreview);
+      } else {
+        // Placeholder cell — keep the surrounding table, swap the contents.
+        replaceTarget.removeAttribute("data-nl-image-placeholder");
+        replaceTarget.removeAttribute("style");
+        replaceTarget.setAttribute("align", "center");
+        replaceTarget.innerHTML = `<img data-nl-image="1" src="${imagePreview}" width="100%" alt="Newsletter image" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:8px;" />`;
+      }
+      replaceTargetRef.current = null;
+      clearSelection();
+      pushChange(readCleanHtml());
+      setImageUrl("");
+      setImagePreview(null);
+      setShowImageDialog(false);
+      return;
+    }
+
     if (mode === "visual") {
       insertAtCursor(imgHtml);
     } else {
@@ -415,6 +688,7 @@ export function RichEmailEditor({
       }
     }
     
+    replaceTargetRef.current = null;
     setImageUrl("");
     setImagePreview(null);
     setShowImageDialog(false);
@@ -816,9 +1090,46 @@ export function RichEmailEditor({
 
             <Separator orientation="vertical" className="h-6 mx-1" />
 
-            {/* Undo/Redo */}
-            <ToolbarButton icon={Undo} label="Undo" onClick={() => formatDoc("undo")} />
-            <ToolbarButton icon={Redo} label="Redo" onClick={() => formatDoc("redo")} />
+            {/* Undo/Redo — backed by the editor's own snapshot history, so it
+                covers toolbar actions, image edits and section moves, not just
+                browser-native typing. */}
+            <ToolbarButton
+              icon={Undo}
+              label={history.canUndo ? "Undo (Ctrl+Z)" : "Nothing to undo"}
+              onClick={handleUndo}
+            />
+            <ToolbarButton
+              icon={Redo}
+              label={history.canRedo ? "Redo (Ctrl+Shift+Z)" : "Nothing to redo"}
+              onClick={handleRedo}
+            />
+
+            {enableNewsletterTools && onDesignChange && (
+              <>
+                <Separator orientation="vertical" className="h-6 mx-1" />
+                <DesignPanel design={design ?? {}} onChange={onDesignChange} />
+              </>
+            )}
+
+            {enableNewsletterTools && (
+              <>
+                <Separator orientation="vertical" className="h-6 mx-1" />
+                <Button
+                  variant="ghost" size="sm" className="h-8 px-2 gap-1.5"
+                  onMouseDown={(e) => { e.preventDefault(); setShowVersions(true); }}
+                >
+                  <History className="h-4 w-4" />
+                  <span className="text-xs">Versions</span>
+                </Button>
+                <Button
+                  variant="ghost" size="sm" className="h-8 px-2 gap-1.5"
+                  onMouseDown={(e) => { e.preventDefault(); setShowTestSend(true); }}
+                >
+                  <Send className="h-4 w-4" />
+                  <span className="text-xs">Test send</span>
+                </Button>
+              </>
+            )}
 
             <Separator orientation="vertical" className="h-6 mx-1" />
 
@@ -950,6 +1261,63 @@ export function RichEmailEditor({
       <div className="space-y-2">
         {mode === "visual" && (
           <div className="relative">
+            {/* Direct-manipulation bar. Click an image, an image placeholder, or
+                any section in the email to resize, realign, replace, reorder,
+                duplicate or delete it — without touching the HTML. */}
+            {selected && (
+              <div className="flex flex-wrap items-center gap-1 mb-2 p-1.5 rounded-md border bg-muted/40">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground px-1.5">
+                  {selected.kind === "image" ? "Image" : selected.kind === "placeholder" ? "Image placeholder" : "Section"}
+                </span>
+
+                {selected.kind === "image" && (
+                  <>
+                    <Separator orientation="vertical" className="h-5 mx-0.5" />
+                    {[25, 50, 75, 100].map((pct) => (
+                      <Button
+                        key={pct} variant="ghost" size="sm" className="h-7 px-2 text-[11px]"
+                        onMouseDown={(e) => { e.preventDefault(); setImageWidth(pct); }}
+                      >
+                        {pct}%
+                      </Button>
+                    ))}
+                    <Separator orientation="vertical" className="h-5 mx-0.5" />
+                    <ToolbarButton icon={AlignLeft} label="Align image left" onClick={() => setImageAlign("left")} />
+                    <ToolbarButton icon={AlignHorizontalJustifyCenter} label="Center image" onClick={() => setImageAlign("center")} />
+                    <ToolbarButton icon={AlignRight} label="Align image right" onClick={() => setImageAlign("right")} />
+                    <Separator orientation="vertical" className="h-5 mx-0.5" />
+                    <Input
+                      value={(selected.el.getAttribute("alt") ?? "")}
+                      onChange={(e) => setImageAlt(e.target.value)}
+                      placeholder="Alt text (accessibility)"
+                      className="h-7 text-[11px] w-44"
+                    />
+                  </>
+                )}
+
+                {(selected.kind === "image" || selected.kind === "placeholder") && (
+                  <Button
+                    variant="ghost" size="sm" className="h-7 px-2 text-[11px] gap-1"
+                    onMouseDown={(e) => { e.preventDefault(); startImageReplace(); }}
+                  >
+                    <Replace className="h-3.5 w-3.5" />Replace
+                  </Button>
+                )}
+
+                <Separator orientation="vertical" className="h-5 mx-0.5" />
+                <ToolbarButton icon={ArrowUp} label="Move section up" onClick={() => moveBlock(-1)} />
+                <ToolbarButton icon={ArrowDown} label="Move section down" onClick={() => moveBlock(1)} />
+                <ToolbarButton icon={Copy} label="Duplicate section" onClick={duplicateBlock} />
+                <ToolbarButton icon={Trash2} label="Delete" onClick={deleteSelection} />
+
+                <Button
+                  variant="ghost" size="sm" className="h-7 px-2 text-[11px] ml-auto"
+                  onMouseDown={(e) => { e.preventDefault(); clearSelection(); }}
+                >
+                  Done
+                </Button>
+              </div>
+            )}
             <div
               ref={editorRef}
               contentEditable
@@ -957,6 +1325,8 @@ export function RichEmailEditor({
               onInput={handleEditorInput}
               onMouseUp={saveSelection}
               onKeyUp={saveSelection}
+              onKeyDown={handleEditorKeyDown}
+              onClick={handleEditorClick}
               onBlur={handleEditorInput}
               // word-break + overflow-wrap stop a long pasted URL (or any
               // unbroken string) from forcing the parent dialog to scroll
@@ -971,7 +1341,8 @@ export function RichEmailEditor({
               style={{ minHeight, wordBreak: "break-word", overflowWrap: "anywhere" }}
             />
             <p className="text-[10px] text-muted-foreground mt-2">
-              <span className="font-medium">Tip:</span> Select text to format it. Click "Button" to add CTAs.
+              <span className="font-medium">Tip:</span> Select text to format it. Click an image or a
+              section to resize, replace, reorder or delete it. Ctrl/Cmd+Z undoes any of it.
             </p>
           </div>
         )}
@@ -1298,7 +1669,13 @@ export function RichEmailEditor({
               <Label className="text-xs">Image URL</Label>
               <Input
                 value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setImageUrl(v);
+                  // Pasting a URL used to leave "Insert Image" disabled because
+                  // only the upload path set imagePreview.
+                  setImagePreview(/^https?:\/\/\S+$/i.test(v.trim()) ? v.trim() : null);
+                }}
                 className="h-9 mt-1"
                 placeholder="https://example.com/image.jpg"
               />
@@ -1340,11 +1717,39 @@ export function RichEmailEditor({
             </Button>
             <Button onClick={insertImage} disabled={!imagePreview}>
               <Check className="h-4 w-4 mr-1.5" />
-              Insert Image
+              {replaceTargetRef.current ? "Replace Image" : "Insert Image"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {enableNewsletterTools && (
+        <>
+          <TestSendDialog
+            open={showTestSend}
+            onOpenChange={setShowTestSend}
+            subject={subject ?? "Newsletter preview"}
+            html={value}
+            previewText={previewText}
+            useNewsletterShell
+            design={design}
+            issueLabel={issueLabel}
+            title={newsletterTitle}
+          />
+          <VersionHistoryDialog
+            open={showVersions}
+            onOpenChange={setShowVersions}
+            owner={versionOwner ?? {}}
+            current={{ subject, previewText, html: value, design }}
+            onRestore={(v) => {
+              applySnapshot(v.html);
+              history.commit(v.html);
+              if (v.design && onDesignChange) onDesignChange(v.design);
+              onRestoreMeta?.({ subject: v.subject, previewText: v.previewText });
+            }}
+          />
+        </>
+      )}
     </div>
   );
 }
