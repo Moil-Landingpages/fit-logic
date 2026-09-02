@@ -13,7 +13,10 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { EmailPreview } from "@/components/EmailPreview";
+import { VerificationChecklist, type GenerationVerification } from "@/components/EmailDesignTools";
+import type { NewsletterDesign } from "@/lib/newsletter-brand";
 import { RichEmailEditor } from "@/components/RichEmailEditor";
 import type { Segment } from "@/lib/campaign-data";
 
@@ -26,6 +29,15 @@ interface AICampaignResult {
   suggestedSegment: string;
   sendTimeRecommendation: string;
   rationale: string;
+  /** Newsletter path only. */
+  kind?: "newsletter";
+  title?: string;
+  design?: NewsletterDesign;
+  issueLabel?: string | null;
+  verification?: GenerationVerification;
+  /** The article the copy was grounded in — stored alongside the template so a
+   *  reviewer can re-check a claim against its source later. */
+  sourceMaterial?: string | null;
 }
 
 interface AICampaignCreatorProps {
@@ -52,6 +64,8 @@ interface PersistedDraft {
   step: CreatorStep;
   prompt: string;
   result: AICampaignResult | null;
+  sourceMaterial?: string;
+  issueLabel?: string;
 }
 
 type EmailType = "cold_outreach" | "newsletter" | "educational" | "reengagement" | "promotional";
@@ -84,6 +98,22 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
   const [emailType, setEmailType] = useState<EmailType>("cold_outreach");
   const [ctaUrl, setCtaUrl] = useState<string>("");
 
+  // Newsletter inputs. Source material + strict grounding are the fix for the
+  // wizard inventing months, statistics and medical claims that appeared
+  // nowhere in the prompt or the article.
+  const [sourceMaterial, setSourceMaterial] = useState("");
+  const [strictGrounding, setStrictGrounding] = useState(true);
+  const [issueLabel, setIssueLabel] = useState("");
+  const [imageDirectives, setImageDirectives] = useState("");
+  const [designNotes, setDesignNotes] = useState("");
+  const [sectionCount, setSectionCount] = useState("2");
+  const [includeHeroImage, setIncludeHeroImage] = useState(true);
+  const [includeCtaButton, setIncludeCtaButton] = useState(true);
+  const [design, setDesign] = useState<NewsletterDesign>({});
+  const [verified, setVerified] = useState(false);
+
+  const isNewsletter = emailType === "newsletter";
+
   const { data: links = [] } = useQuery({
     queryKey: ["practice_links"],
     queryFn: async (): Promise<PracticeLink[]> => {
@@ -109,6 +139,8 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
       if (draft.prompt) setPrompt(draft.prompt);
       if (draft.result) setResult(draft.result);
       if (draft.step) setStep(draft.step);
+      if (draft.sourceMaterial) setSourceMaterial(draft.sourceMaterial);
+      if (draft.issueLabel) setIssueLabel(draft.issueLabel);
     } catch {
       // ignore malformed draft
     }
@@ -120,13 +152,13 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
       localStorage.removeItem(DRAFT_STORAGE_KEY);
       return;
     }
-    const draft: PersistedDraft = { step, prompt, result };
+    const draft: PersistedDraft = { step, prompt, result, sourceMaterial, issueLabel };
     try {
       localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
     } catch {
       // ignore quota errors
     }
-  }, [open, step, prompt, result]);
+  }, [open, step, prompt, result, sourceMaterial, issueLabel]);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
@@ -145,11 +177,32 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
           // A2.5
           emailType,
           ctaUrl: ctaUrl || undefined,
+          // Newsletter path — the route switches on mode/emailType rather than
+          // on whichever category the model happens to pick, which is what made
+          // two runs of the same prompt come back structurally different.
+          ...(isNewsletter
+            ? {
+                mode: "newsletter",
+                sourceMaterial: sourceMaterial.trim() || undefined,
+                strictGrounding,
+                issueLabel: issueLabel.trim() || undefined,
+                imageDirectives: imageDirectives.trim() || undefined,
+                designNotes: designNotes.trim() || undefined,
+                sectionCount: parseInt(sectionCount, 10),
+                includeHeroImage,
+                includeCtaButton,
+                design,
+              }
+            : { sourceMaterial: sourceMaterial.trim() || undefined, strictGrounding: strictGrounding && !!sourceMaterial.trim() }),
         }),
       });
       const data = await res.json();
       if (!res.ok || data?.error) throw new Error(data?.error ?? "Failed to generate campaign");
-      setResult(data as AICampaignResult);
+      const generated = data as AICampaignResult;
+      setResult(generated);
+      if (generated.design) setDesign(generated.design);
+      // A fresh generation always needs a fresh human review.
+      setVerified(false);
       setStep("review");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to generate campaign");
@@ -160,7 +213,13 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
 
   const handleAccept = () => {
     if (result) {
-      onAccept(result);
+      onAccept({
+        ...result,
+        design,
+        sourceMaterial: sourceMaterial.trim() || null,
+        issueLabel: issueLabel.trim() || result.issueLabel || null,
+        verification: result.verification,
+      });
       handleReset();
       onOpenChange(false);
     }
@@ -172,6 +231,15 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
     setResult(null);
     setError(null);
     setShowEditFields(true);
+    setSourceMaterial("");
+    setIssueLabel("");
+    setImageDirectives("");
+    setDesignNotes("");
+    setSectionCount("2");
+    setIncludeHeroImage(true);
+    setIncludeCtaButton(true);
+    setDesign({});
+    setVerified(false);
     localStorage.removeItem(DRAFT_STORAGE_KEY);
   };
 
@@ -245,6 +313,116 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
                   </Select>
                 </div>
               </div>
+
+              {/* Source material — the single biggest lever on accuracy.
+                  With an article pasted here and strict mode on, the model may
+                  not introduce a fact (or a month) that is not in it. */}
+              <div className="rounded-lg border p-3 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <Label className="text-xs font-medium">Source material (optional but recommended)</Label>
+                    <p className="text-[10px] text-muted-foreground">
+                      Paste the article, blog post or notes this email should be built from.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Switch
+                      checked={strictGrounding}
+                      onCheckedChange={setStrictGrounding}
+                      disabled={isGenerating}
+                      id="strict-grounding"
+                    />
+                    <Label htmlFor="strict-grounding" className="text-[10px] leading-tight cursor-pointer">
+                      Only use<br />facts from source
+                    </Label>
+                  </div>
+                </div>
+                <Textarea
+                  placeholder="Paste your source article here…"
+                  value={sourceMaterial}
+                  onChange={(e) => setSourceMaterial(e.target.value)}
+                  className="min-h-[90px] resize-y text-xs"
+                  disabled={isGenerating}
+                />
+                {strictGrounding && !sourceMaterial.trim() && (
+                  <p className="text-[10px] text-amber-600">
+                    Strict mode needs source material. Without it the AI writes educational framing only
+                    and flags everything for your review.
+                  </p>
+                )}
+              </div>
+
+              {isNewsletter && (
+                <div className="rounded-lg border p-3 space-y-3">
+                  <p className="text-xs font-medium">Newsletter structure &amp; design</p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">Issue label</Label>
+                      <Input
+                        placeholder="e.g. Monthly Newsletter · Issue 01"
+                        value={issueLabel}
+                        onChange={(e) => setIssueLabel(e.target.value)}
+                        className="h-9 mt-1 text-sm"
+                        disabled={isGenerating}
+                      />
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        Leave blank and no month or issue number is invented.
+                      </p>
+                    </div>
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">Main content sections</Label>
+                      <Select value={sectionCount} onValueChange={setSectionCount} disabled={isGenerating}>
+                        <SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {["1", "2", "3", "4"].map((n) => (
+                            <SelectItem key={n} value={n}>{n} section{n === "1" ? "" : "s"}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <Switch checked={includeHeroImage} onCheckedChange={setIncludeHeroImage} disabled={isGenerating} />
+                      <span className="text-[11px]">Featured image above the article</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <Switch checked={includeCtaButton} onCheckedChange={setIncludeCtaButton} disabled={isGenerating} />
+                      <span className="text-[11px]">CTA button at the end</span>
+                    </label>
+                  </div>
+
+                  <div>
+                    <Label className="text-[11px] text-muted-foreground">Image directions</Label>
+                    <Textarea
+                      placeholder="e.g. A photo of a woman looking at her hair in a mirror; a calm clinic interior for the second section"
+                      value={imageDirectives}
+                      onChange={(e) => setImageDirectives(e.target.value)}
+                      className="min-h-[52px] resize-y text-xs mt-1"
+                      disabled={isGenerating}
+                    />
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      Each becomes a labelled placeholder you click to replace with the real photo.
+                    </p>
+                  </div>
+
+                  <div>
+                    <Label className="text-[11px] text-muted-foreground">Design direction</Label>
+                    <Textarea
+                      placeholder="e.g. Clean, minimal wellness aesthetic; larger headline and smaller body text"
+                      value={designNotes}
+                      onChange={(e) => setDesignNotes(e.target.value)}
+                      className="min-h-[44px] resize-y text-xs mt-1"
+                      disabled={isGenerating}
+                    />
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      Colors, fonts and sizes are set with the Design panel after generating — no regeneration needed.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               <Textarea
                 placeholder="Describe your campaign goal... e.g., 'Re-engage leads who haven't responded in 2 weeks with a special offer'"
@@ -328,6 +506,12 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
                 </div>
               </div>
 
+              <VerificationChecklist
+                verification={result.verification}
+                acknowledged={verified}
+                onAcknowledgedChange={setVerified}
+              />
+
               <Separator />
 
               {/* Collapsible edit fields */}
@@ -359,6 +543,11 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
                           previewText={result.previewText}
                           placeholder="Edit your email content here. Use double Enter for paragraphs. Click 'Insert Variable' to personalize."
                           minHeight={280}
+                          enableNewsletterTools
+                          design={design}
+                          onDesignChange={setDesign}
+                          issueLabel={issueLabel || result.issueLabel}
+                          newsletterTitle={result.title ?? result.campaignName}
                         />
                       </div>
                     </div>
@@ -406,7 +595,11 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
                 <Check className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
                 <div>
                   <p className="text-sm font-medium text-emerald-800">Looks good? Click "Save Campaign" to create it as a draft.</p>
-                  <p className="text-xs text-emerald-700 mt-0.5">You can still go back and edit before saving.</p>
+                  <p className="text-xs text-emerald-700 mt-0.5">
+                    {verified
+                      ? "You can still go back and edit before saving."
+                      : "Go back to Review and confirm the accuracy check before saving."}
+                  </p>
                 </div>
               </div>
             </div>
@@ -444,7 +637,12 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
               <Button variant="outline" onClick={() => setStep("review")}>
                 <ArrowLeft className="h-3.5 w-3.5 mr-1" />Back to Review
               </Button>
-              <Button className="gradient-brand text-primary-foreground" onClick={handleAccept}>
+              <Button
+                className="gradient-brand text-primary-foreground"
+                onClick={handleAccept}
+                disabled={!verified}
+                title={verified ? undefined : "Confirm the accuracy check on the Review step first"}
+              >
                 <Check className="h-4 w-4 mr-1.5" />Save Campaign
               </Button>
             </>

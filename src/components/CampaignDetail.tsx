@@ -1015,6 +1015,13 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
                   minHeight={280}
                   attachments={editingEmail?.attachments ?? []}
                   onAttachmentsChange={(next) => setEditingEmail(p => p ? { ...p, attachments: next } : p)}
+                  enableNewsletterTools
+                  versionOwner={
+                    editingEmail?.type === "template"
+                      ? { templateId: editingEmail.id }
+                      : { sequenceId: editingEmail?.id ?? null }
+                  }
+                  newsletterTitle={campaign.name}
                 />
               </div>
             </div>

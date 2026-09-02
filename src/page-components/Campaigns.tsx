@@ -10,7 +10,7 @@ import { matchesSegmentRules, resolveSegmentMembers, sanitizeSegmentRules } from
 import { fetchAllPatients, getPatientCount } from "@/lib/patient-queries";
 import {
   Mail, Plus, Send, Clock, FileText, Eye, Pencil, Users, BarChart3,
-  Search, Trash2, Copy, MousePointerClick, Sparkles, Layers, X, Filter
+  Search, Trash2, Copy, MousePointerClick, Sparkles, Layers, X, Filter, Star
 } from "lucide-react";
 import { EmailPreview } from "@/components/EmailPreview";
 import { RichEmailEditor } from "@/components/RichEmailEditor";
@@ -520,11 +520,22 @@ const Campaigns_Page = () => {
 
   const saveTemplateMut = useMutation({
     mutationFn: async (t: Partial<TemplateRow>) => {
+      // Cast through any — design / template_kind postdate the generated types.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const anyT = t as any;
+      const shared = {
+        name: t.name, subject: t.subject, preview_text: t.preview_text,
+        body_html: t.body_html, category: t.category,
+        design: anyT.design ?? {},
+        template_kind: anyT.template_kind ?? "email",
+      };
       if (t.id) {
-        const { error } = await supabase.from("email_templates").update({ name: t.name, subject: t.subject, preview_text: t.preview_text, body_html: t.body_html, category: t.category }).eq("id", t.id);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { error } = await (supabase as any).from("email_templates").update(shared).eq("id", t.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("email_templates").insert({ name: t.name!, subject: t.subject!, preview_text: t.preview_text, body_html: t.body_html, category: t.category || "welcome" });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { error } = await (supabase as any).from("email_templates").insert({ ...shared, name: t.name!, subject: t.subject!, category: t.category || "welcome" });
         if (error) throw error;
       }
     },
@@ -571,6 +582,70 @@ const Campaigns_Page = () => {
   };
 
   const getTemplate = (id: string | null) => templates.find(t => t.id === id);
+
+  /* --- Reusable master newsletter template -------------------------------
+     The master carries the fixed brand shell + section skeleton. Each month
+     you duplicate it and only change the variable content, which is what keeps
+     issues recognisable to recipients. */
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isMaster = (t: any) => Boolean(t?.is_master);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const masterTemplate = templates.find((t: any) => isMaster(t));
+
+  const duplicateTemplate = async (tpl: any, namePrefix = "Copy of ") => {
+    const { data, error } = await (supabase as any).from("email_templates").insert({
+      name: `${namePrefix}${tpl.name}`,
+      subject: tpl.subject,
+      preview_text: tpl.preview_text,
+      body_html: tpl.body_html,
+      category: tpl.category,
+      template_kind: tpl.template_kind ?? "email",
+      design: tpl.design ?? {},
+      // A duplicate is never the master and is never pre-verified — the new
+      // issue's content has not been reviewed yet.
+      is_master: false,
+      verification_notes: {},
+      verified_at: null,
+    }).select().single();
+    if (error) {
+      toast({ title: "Duplicate failed", description: error.message, variant: "destructive" });
+      return null;
+    }
+    queryClient.invalidateQueries({ queryKey: QK.emailTemplates });
+    return data;
+  };
+
+  const setAsMaster = async (tpl: any) => {
+    // A partial unique index enforces one master per kind, so clear the old one
+    // first rather than letting the insert fail.
+    const kind = tpl.template_kind ?? "email";
+    const { error: clearErr } = await (supabase as any)
+      .from("email_templates").update({ is_master: false })
+      .eq("template_kind", kind).eq("is_master", true);
+    if (clearErr) {
+      toast({ title: "Could not update master", description: clearErr.message, variant: "destructive" });
+      return;
+    }
+    const { error } = await (supabase as any)
+      .from("email_templates").update({ is_master: true, template_kind: kind }).eq("id", tpl.id);
+    if (error) {
+      toast({ title: "Could not set master", description: error.message, variant: "destructive" });
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: QK.emailTemplates });
+    toast({ title: "Master template set", description: `"${tpl.name}" is now the reusable starting point.` });
+  };
+
+  const startFromMaster = async () => {
+    if (!masterTemplate) return;
+    const copy = await duplicateTemplate(masterTemplate, "");
+    if (copy) {
+      setEditingTemplate(copy);
+      setShowTemplateEditor(true);
+      toast({ title: "New issue started", description: "Edit the variable content — the brand shell is already in place." });
+    }
+  };
   const getSegment = (id: string | null) => segments.find(s => s.id === id);
   const filteredCampaigns = campaigns.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
   const filteredTemplates = templates.filter(t => t.name.toLowerCase().includes(search.toLowerCase()) || t.subject.toLowerCase().includes(search.toLowerCase()));
@@ -670,10 +745,31 @@ const Campaigns_Page = () => {
   };
 
   const handleAIAccept = async (result: any) => {
-    const { data: tpl } = await supabase.from("email_templates").insert({
-      name: result.campaignName, subject: result.subject, preview_text: result.previewText, body_html: result.bodyHtml, category: result.category,
+    const isNewsletter = result.kind === "newsletter";
+    // Cast through any — template_kind / design / verification_notes postdate
+    // the auto-generated supabase types (migration 20260901000001).
+    const { data: tpl, error: tplErr } = await (supabase as any).from("email_templates").insert({
+      name: result.campaignName,
+      subject: result.subject,
+      preview_text: result.previewText,
+      body_html: result.bodyHtml,
+      category: result.category,
+      template_kind: isNewsletter ? "newsletter" : "email",
+      design: result.design ?? {},
+      // Keep the article the copy was grounded in next to the copy itself, so
+      // a later reviewer can re-check a claim against its source.
+      source_material: result.sourceMaterial ?? null,
+      verification_notes: result.verification ?? {},
+      verified_at: result.verification ? new Date().toISOString() : null,
     }).select().single();
-    if (!tpl) return;
+    if (tplErr || !tpl) {
+      toast({
+        title: "Failed to save campaign",
+        description: tplErr?.message ?? "The template could not be created.",
+        variant: "destructive",
+      });
+      return;
+    }
     const matchSeg = segments.find(s => s.name.toLowerCase().includes(result.suggestedSegment.toLowerCase()));
     await supabase.from("campaigns").insert({
       name: result.campaignName, status: "draft", template_id: tpl.id, segment_id: matchSeg?.id || null,
@@ -867,6 +963,18 @@ const Campaigns_Page = () => {
         </TabsContent>
 
         <TabsContent value="templates" className="mt-4 space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <p className="text-xs text-muted-foreground">
+              {masterTemplate
+                ? <>Master template: <span className="font-medium text-foreground">{masterTemplate.name}</span> — duplicate it each month and change only the variable content.</>
+                : "Mark a template as master to reuse its brand shell every month."}
+            </p>
+            {masterTemplate && (
+              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={startFromMaster}>
+                <Copy className="h-3.5 w-3.5 mr-1" />New issue from master
+              </Button>
+            )}
+          </div>
           {filteredTemplates.length === 0 && (
             <Card><CardContent className="py-12 text-center text-muted-foreground">
               <FileText className="h-8 w-8 mx-auto mb-2 opacity-40" />
@@ -886,10 +994,26 @@ const Campaigns_Page = () => {
                     <div className="flex items-center gap-2 mb-0.5">
                       <h3 className="font-heading font-semibold text-foreground truncate">{tpl.name}</h3>
                       {catCfg && <Badge variant="outline" className={`${catCfg.color} text-[10px]`}>{catCfg.label}</Badge>}
+                      {isMaster(tpl) && (
+                        <Badge className="bg-primary/10 text-primary border-0 text-[10px]">
+                          <Star className="h-3 w-3 mr-0.5" />Master
+                        </Badge>
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground truncate">{tpl.subject}</p>
                   </div>
                   <div className="flex gap-1">
+                    <Button
+                      variant="ghost" size="icon" className="h-8 w-8"
+                      title={isMaster(tpl) ? "This is the master template" : "Set as master template"}
+                      onClick={() => setAsMaster(tpl)}
+                      disabled={isMaster(tpl)}
+                    >
+                      <Star className={`h-3.5 w-3.5 ${isMaster(tpl) ? "text-primary fill-primary" : ""}`} />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Duplicate" onClick={() => duplicateTemplate(tpl)}>
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPreviewTemplate(tpl)}><Eye className="h-3.5 w-3.5" /></Button>
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingTemplate(tpl); setShowTemplateEditor(true); }}><Pencil className="h-3.5 w-3.5" /></Button>
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setDeletingTemplateId(tpl.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
@@ -1340,6 +1464,16 @@ const Campaigns_Page = () => {
                   previewText={editingTemplate?.preview_text || ""}
                   placeholder="Write your template here. Use the toolbar to format text, add links, lists, images and CTA buttons."
                   minHeight={300}
+                  enableNewsletterTools
+                  design={(editingTemplate as any)?.design ?? {}}
+                  onDesignChange={(d) => setEditingTemplate(p => ({ ...(p as any), design: d }))}
+                  versionOwner={{ templateId: editingTemplate?.id ?? null }}
+                  newsletterTitle={editingTemplate?.name ?? null}
+                  onRestoreMeta={(m) => setEditingTemplate(p => ({
+                    ...(p as any),
+                    ...(m.subject != null ? { subject: m.subject } : {}),
+                    ...(m.previewText != null ? { preview_text: m.previewText } : {}),
+                  }))}
                 />
               </div>
             </div>
