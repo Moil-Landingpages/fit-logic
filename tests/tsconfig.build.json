@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "outDir": ".build",
+    "rootDir": "../src",
+    "module": "commonjs",
+    "target": "es2020",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "lib": ["es2020", "dom"],
+    "baseUrl": "..",
+    "paths": { "@/*": ["src/*"] }
+  },
+  "files": [
+    "../src/lib/newsletter-brand.ts",
+    "../src/lib/newsletter-render.ts",
+    "../src/lib/editor-dom.ts",
+    "../src/lib/email-vars.ts",
+    "../src/lib/emailSender.ts",
+    "../src/hooks/use-editor-history.ts"
+  ]
+}

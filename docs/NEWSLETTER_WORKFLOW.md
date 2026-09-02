@@ -122,7 +122,11 @@ editor.
 - Background presets including light blue
 - Reset to brand defaults
 
-All of it applies without regenerating the email.
+All of it applies without regenerating the email, and it restyles content that
+already exists — including copy the AI generated and copy you typed yourself.
+Changing the body size moves the actual paragraphs, not just the frame around
+them. Each design change is one Ctrl/Cmd+Z step, so you can try something and
+back out of it.
 
 ### Prompting for design
 
@@ -195,7 +199,9 @@ campaign email editor).
 - Sends one copy to any address, subject prefixed `[TEST]`.
 - Merge variables are filled with sample values, so you see `Hi Taylor,` rather
   than `Hi {first_name},`.
-- Wrapped in the real branded shell, so what you see is what recipients get.
+- Wrapped exactly the way the real send will be: newsletters get the branded
+  shell, plain outreach emails and sequence steps do not. A test that added
+  branding the real email will never have would be worse than no test.
 - Nothing is logged to the campaign, no recipient is enrolled, the daily send
   cap and suppression list are untouched.
 
@@ -212,3 +218,5 @@ Test sends require an email provider connected in **Settings → Integrations**.
 - The AI does not generate images; it produces labelled placeholders describing
   the photo to use.
 - Version history keeps the 50 most recent snapshots per template.
+- Undo keeps 80 steps. Typing is grouped; each toolbar action, image edit,
+  section move and design change is its own separate step.

@@ -50,6 +50,10 @@ export interface NewsletterDesign {
   lineHeight?: number;
   contentWidth?: number;
   sectionSpacing?: number;
+  /** Issue label for the branded header ("Monthly Newsletter", "Issue 04").
+   *  Stored with the design so the send-time shell can read it back; never
+   *  auto-generated, so an unset label means no date appears anywhere. */
+  issueLabel?: string | null;
 }
 
 export const DEFAULT_BRAND_KIT: BrandKit = {
@@ -72,7 +76,11 @@ export const DEFAULT_BRAND_KIT: BrandKit = {
   footerNote: null,
 };
 
-export const DEFAULT_NEWSLETTER_DESIGN: Required<NewsletterDesign> = {
+/** The styling half of a design — every token resolved. `issueLabel` is
+ *  metadata that rides along in the same object, not a style token. */
+export type ResolvedDesign = Required<Omit<NewsletterDesign, "issueLabel">>;
+
+export const DEFAULT_NEWSLETTER_DESIGN: ResolvedDesign = {
   bgColor: "#f4f4f5",
   cardColor: "#ffffff",
   accentColor: "#0e9aa7",
@@ -137,7 +145,7 @@ export function safeUrl(value: string | undefined | null): string | null {
 export function resolveDesign(
   brand: BrandKit,
   design?: NewsletterDesign | null,
-): Required<NewsletterDesign> {
+): ResolvedDesign {
   const d = design ?? {};
   return {
     bgColor: safeCssValue(d.bgColor, safeCssValue(brand.bgColor, DEFAULT_NEWSLETTER_DESIGN.bgColor)),

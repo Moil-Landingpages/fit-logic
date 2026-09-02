@@ -544,6 +544,7 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
                           placeholder="Edit your email content here. Use double Enter for paragraphs. Click 'Insert Variable' to personalize."
                           minHeight={280}
                           enableNewsletterTools
+                          isNewsletter={result.kind === "newsletter"}
                           design={design}
                           onDesignChange={setDesign}
                           issueLabel={issueLabel || result.issueLabel}

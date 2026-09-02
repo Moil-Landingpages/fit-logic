@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { useEditorHistory } from "@/hooks/use-editor-history";
 import { DesignPanel, TestSendDialog, VersionHistoryDialog, type VersionOwner } from "@/components/EmailDesignTools";
 import type { NewsletterDesign } from "@/lib/newsletter-brand";
+import * as EditorDom from "@/lib/editor-dom";
 
 export interface EmailAttachment {
   id: string;
@@ -48,6 +49,10 @@ interface RichEmailEditorProps {
   onAttachmentsChange?: (attachments: EmailAttachment[]) => void;
   /** Enables the newsletter tool row: design panel, section controls, test send. */
   enableNewsletterTools?: boolean;
+  /** True only when this content is actually a newsletter. Controls whether a
+   *  test send is wrapped in the branded shell — wrapping a plain sequence step
+   *  in newsletter chrome would make the test misrepresent the real send. */
+  isNewsletter?: boolean;
   /** Design tokens for this email. Controlled by the parent so they can be saved. */
   design?: NewsletterDesign | null;
   onDesignChange?: (design: NewsletterDesign) => void;
@@ -102,6 +107,7 @@ export function RichEmailEditor({
   attachments = [],
   onAttachmentsChange,
   enableNewsletterTools = false,
+  isNewsletter = false,
   design = null,
   onDesignChange,
   versionOwner,
@@ -152,6 +158,7 @@ export function RichEmailEditor({
   const editorRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const hasInitialized = useRef(false);
+  const historySeeded = useRef(false);
 
   // Own undo/redo stack — see useEditorHistory for why execCommand("undo")
   // could not cover the toolbar's programmatic DOM edits.
@@ -204,9 +211,16 @@ export function RichEmailEditor({
     if (editorRef.current && !hasInitialized.current && mounted) {
       editorRef.current.innerHTML = value || "";
       hasInitialized.current = true;
-      // Seed the stack with the loaded content so the first edit is undoable
-      // back to the original, but the load itself is not an undo step.
-      history.reset(value || "");
+      if (!historySeeded.current) {
+        // Seed once with the loaded content so the first edit is undoable back
+        // to the original, without the load itself being an undo step.
+        history.reset(value || "");
+        historySeeded.current = true;
+      } else {
+        // Returning from HTML/preview mode. Resetting here would throw away the
+        // session's undo stack, so record the round trip as one more step.
+        history.commit(value || "");
+      }
     }
   }, [mode, value, mounted]);
 
@@ -256,12 +270,7 @@ export function RichEmailEditor({
   /** The top-level block (direct child of the editor) that contains `node`. */
   const topLevelBlockOf = useCallback((node: HTMLElement): HTMLElement | null => {
     const editor = editorRef.current;
-    if (!editor || !editor.contains(node)) return null;
-    let cur: HTMLElement | null = node;
-    while (cur && cur.parentElement && cur.parentElement !== editor) {
-      cur = cur.parentElement;
-    }
-    return cur && cur.parentElement === editor ? cur : null;
+    return editor ? EditorDom.topLevelBlockOf(editor, node) : null;
   }, []);
 
   const handleEditorClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -308,28 +317,9 @@ export function RichEmailEditor({
 
   /* --- image controls ------------------------------------------------ */
 
-  const setImageWidth = (pct: number) => mutateSelection((el) => {
-    const img = el as HTMLImageElement;
-    img.setAttribute("width", `${pct}%`);
-    img.style.width = `${pct}%`;
-    img.style.maxWidth = "100%";
-    img.style.height = "auto";
-  });
-
-  const setImageAlign = (align: "left" | "center" | "right") => mutateSelection((el) => {
-    const img = el as HTMLImageElement;
-    img.style.display = "block";
-    img.style.marginLeft = align === "left" ? "0" : "auto";
-    img.style.marginRight = align === "right" ? "0" : "auto";
-    // Email clients honour the parent cell's align attribute more reliably
-    // than CSS margins, so set both.
-    const cell = img.closest("td");
-    if (cell) cell.setAttribute("align", align);
-  });
-
-  const setImageAlt = (alt: string) => mutateSelection((el) => {
-    el.setAttribute("alt", alt);
-  });
+  const setImageWidth = (pct: number) => mutateSelection((el) => EditorDom.setImageWidth(el, pct));
+  const setImageAlign = (align: EditorDom.ImageAlign) => mutateSelection((el) => EditorDom.setImageAlign(el, align));
+  const setImageAlt = (alt: string) => mutateSelection((el) => EditorDom.setImageAlt(el, alt));
 
   /* --- block controls ------------------------------------------------ */
 
@@ -344,35 +334,19 @@ export function RichEmailEditor({
     const block = blockForSelection();
     const editor = editorRef.current;
     if (!block || !editor) return;
-    const sibling = dir === -1 ? block.previousElementSibling : block.nextElementSibling;
-    if (!sibling) return;
-    if (dir === -1) editor.insertBefore(block, sibling);
-    else editor.insertBefore(sibling, block);
-    pushChange(readCleanHtml());
+    if (EditorDom.moveBlock(editor, block, dir)) pushChange(readCleanHtml());
   };
 
   const duplicateBlock = () => {
     const block = blockForSelection();
     if (!block) return;
-    const clone = block.cloneNode(true) as HTMLElement;
-    clone.style.outline = "";
-    clone.style.outlineOffset = "";
-    block.parentElement?.insertBefore(clone, block.nextSibling);
-    pushChange(readCleanHtml());
+    if (EditorDom.duplicateBlock(block)) pushChange(readCleanHtml());
   };
 
   const deleteSelection = () => {
     const el = selected?.el;
-    if (!el) return;
-    // Deleting an image also removes the wrapper table when that table exists
-    // only to hold the image — otherwise an empty grey box is left behind.
-    let target: HTMLElement = el;
-    if (selected?.kind === "image") {
-      const table = el.closest("table");
-      if (table && table.querySelectorAll("img").length === 1 && !table.textContent?.trim()) {
-        target = table;
-      }
-    }
+    if (!el || !selected) return;
+    const target = EditorDom.deletionTargetFor(el, selected.kind);
     applySelectionOutline(null);
     setSelected(null);
     target.remove();
@@ -601,6 +575,31 @@ export function RichEmailEditor({
     const html = history.redo();
     if (html !== null) applySnapshot(html);
   }, [history, applySnapshot]);
+
+  // Design tokens are baked inline into every element, because email clients
+  // (Outlook especially) do not reliably inherit typography from a container.
+  // The consequence was that the Design panel only restyled the outer shell and
+  // left generated copy untouched. This re-applies the tokens to the live
+  // content whenever they change, as a single undo step.
+  const lastAppliedDesign = useRef<string | null>(null);
+  useEffect(() => {
+    if (!enableNewsletterTools || mode !== "visual") return;
+    const key = JSON.stringify(design ?? {});
+    if (lastAppliedDesign.current === null) {
+      // First pass: adopt the incoming design without rewriting the content.
+      lastAppliedDesign.current = key;
+      return;
+    }
+    if (lastAppliedDesign.current === key) return;
+    lastAppliedDesign.current = key;
+    const editor = editorRef.current;
+    if (!editor) return;
+    EditorDom.restyleNewsletterContent(editor, design);
+    pushChange(readCleanHtml());
+    // pushChange/readCleanHtml are stable enough for this effect's purpose;
+    // re-running on their identity would restyle on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [design, enableNewsletterTools, mode]);
 
   const handleEditorKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     const mod = e.metaKey || e.ctrlKey;
@@ -1731,7 +1730,7 @@ export function RichEmailEditor({
             subject={subject ?? "Newsletter preview"}
             html={value}
             previewText={previewText}
-            useNewsletterShell
+            useNewsletterShell={isNewsletter}
             design={design}
             issueLabel={issueLabel}
             title={newsletterTitle}

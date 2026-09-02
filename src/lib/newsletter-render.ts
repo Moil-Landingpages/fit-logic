@@ -15,6 +15,7 @@
 
 import {
   type NewsletterDesign,
+  type ResolvedDesign,
   type BrandKit,
   DEFAULT_NEWSLETTER_DESIGN,
   escapeHtml,
@@ -69,7 +70,7 @@ function p(text: string, style: string): string {
  * recognises `data-nl-image` and swaps the `src` rather than inserting a
  * second image below it — the exact complaint in the feedback.
  */
-function imageBlock(section: NewsletterSection, d: Required<NewsletterDesign>): string {
+function imageBlock(section: NewsletterSection, d: ResolvedDesign): string {
   const url = safeUrl(section.imageUrl);
   const alt = escapeHtml(section.imagePrompt || "Newsletter image");
   if (url) {
@@ -85,7 +86,7 @@ function imageBlock(section: NewsletterSection, d: Required<NewsletterDesign>): 
 </td></tr></table>`;
 }
 
-function ctaBlock(section: NewsletterSection, d: Required<NewsletterDesign>): string {
+function ctaBlock(section: NewsletterSection, d: ResolvedDesign): string {
   const label = escapeHtml(section.ctaLabel || "Learn more");
   const url = safeUrl(section.ctaUrl) ?? "#";
   return `<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 ${d.sectionSpacing}px;"><tr><td align="center">
@@ -96,7 +97,7 @@ function ctaBlock(section: NewsletterSection, d: Required<NewsletterDesign>): st
 /** Render one section to email-safe HTML. */
 export function renderSection(
   section: NewsletterSection,
-  d: Required<NewsletterDesign>,
+  d: ResolvedDesign,
 ): string {
   const bodyStyle = `margin:0 0 12px;font-family:${d.bodyFont};font-size:${d.bodySize}px;line-height:${d.lineHeight};color:${d.bodyColor};`;
   const headingStyle = `margin:0 0 10px;font-family:${d.headingFont};font-size:${Math.round(

@@ -36,6 +36,11 @@ export function useEditorHistory(initial: string = ""): EditorHistory {
   const stack = useRef<string[]>([initial]);
   const index = useRef(0);
   const lastCommitAt = useRef(0);
+  // Whether the entry at the top of the stack was itself produced by a
+  // coalescing (typing) commit. Without this, typing straight after a toolbar
+  // action merges into that action's snapshot and destroys it — one Ctrl+Z
+  // would then undo the typing *and* the image insert or section move.
+  const lastWasCoalescible = useRef(false);
   // State only exists to re-render the toolbar's enabled/disabled buttons.
   const [, force] = useState(0);
   const sync = useCallback(() => force((n) => n + 1), []);
@@ -47,6 +52,7 @@ export function useEditorHistory(initial: string = ""): EditorHistory {
       const now = Date.now();
       const shouldMerge =
         opts?.coalesce === true &&
+        lastWasCoalescible.current &&
         index.current > 0 &&
         now - lastCommitAt.current < COALESCE_MS;
 
@@ -62,6 +68,7 @@ export function useEditorHistory(initial: string = ""): EditorHistory {
       }
 
       lastCommitAt.current = now;
+      lastWasCoalescible.current = opts?.coalesce === true;
       sync();
     },
     [sync],
@@ -72,6 +79,7 @@ export function useEditorHistory(initial: string = ""): EditorHistory {
     index.current -= 1;
     // Break coalescing so the next keystroke starts a fresh entry.
     lastCommitAt.current = 0;
+    lastWasCoalescible.current = false;
     sync();
     return stack.current[index.current];
   }, [sync]);
@@ -80,6 +88,7 @@ export function useEditorHistory(initial: string = ""): EditorHistory {
     if (index.current >= stack.current.length - 1) return null;
     index.current += 1;
     lastCommitAt.current = 0;
+    lastWasCoalescible.current = false;
     sync();
     return stack.current[index.current];
   }, [sync]);
@@ -89,6 +98,7 @@ export function useEditorHistory(initial: string = ""): EditorHistory {
       stack.current = [html];
       index.current = 0;
       lastCommitAt.current = 0;
+      lastWasCoalescible.current = false;
       sync();
     },
     [sync],

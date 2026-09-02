@@ -49,7 +49,7 @@ export async function loadNewsletterShellContext(
     return {
       brand: brandKitFromSettings(settings),
       design,
-      issueLabel: (design as any)?.issueLabel ?? null,
+      issueLabel: design?.issueLabel ?? null,
       title: tpl.name ?? null,
     };
   } catch (e) {

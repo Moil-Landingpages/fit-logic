@@ -43,4 +43,6 @@ next-env.d.ts
 
 # production
 /build
-/.claude/
+/.claude
+tests/.build/
+audit-report.html

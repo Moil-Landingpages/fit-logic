@@ -342,6 +342,20 @@ You MUST use the generate_newsletter tool to return your response.`;
         }
       }
 
+      // A button with no destination renders as href="#": it looks fine in the
+      // preview, does nothing when clicked, and is skipped by click tracking so
+      // it reads as "nobody clicked" rather than "the button was broken".
+      // Surface it on the checklist the user has to acknowledge.
+      const extraWarnings: string[] = [];
+      const deadCta = sections.some(
+        (s) => (s.kind === "cta" || s.ctaLabel) && !(typeof s.ctaUrl === "string" && /^https?:\/\//i.test(s.ctaUrl)),
+      );
+      if (deadCta) {
+        extraWarnings.push(
+          "The call-to-action button has no destination link yet. Set one in the editor (or pick a saved CTA link) before sending — it will otherwise do nothing when clicked.",
+        );
+      }
+
       const resolvedDesign = resolveDesign(brand, (design ?? null) as NewsletterDesign | null);
       const bodyHtml = renderSections({ sections, brand, design: resolvedDesign });
 
@@ -364,7 +378,10 @@ You MUST use the generate_newsletter tool to return your response.`;
           hadSourceMaterial: trimmedSource.length > 0,
           strictMode: useStrictSource,
           factsUsed: Array.isArray(fnArgs.factsUsed) ? fnArgs.factsUsed : [],
-          unverifiedClaims: Array.isArray(fnArgs.unverifiedClaims) ? fnArgs.unverifiedClaims : [],
+          unverifiedClaims: [
+            ...(Array.isArray(fnArgs.unverifiedClaims) ? (fnArgs.unverifiedClaims as string[]) : []),
+            ...extraWarnings,
+          ],
         },
       });
     }

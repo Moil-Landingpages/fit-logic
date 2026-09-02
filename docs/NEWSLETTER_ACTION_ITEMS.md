@@ -166,6 +166,19 @@ newsletter code casts through `any` in a handful of places as a result, which
 means the compiler is not checking those queries. Regenerate after the migration
 lands and remove the casts.
 
+### 9b. Run the newsletter test suite before touching this code again
+**Owner: dev · 1 minute**
+
+```
+npm run test:newsletter
+```
+
+99 assertions over the rendering pipeline, the undo history, the editor's
+image/section manipulation, and the send-time sanitizer. No framework, no CI
+wiring — it is a plain Node runner. If you change anything under
+`src/lib/newsletter-*`, `src/lib/editor-dom.ts` or
+`src/hooks/use-editor-history.ts`, run it.
+
 ### 10. Decide the sending cadence and put it on the calendar
 **Owner: Fiel / Megan · 15 minutes**
 

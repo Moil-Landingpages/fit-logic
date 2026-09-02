@@ -639,7 +639,11 @@ const Campaigns_Page = () => {
 
   const startFromMaster = async () => {
     if (!masterTemplate) return;
-    const copy = await duplicateTemplate(masterTemplate, "");
+    // Strip the "Master" suffix so the new issue is not mistaken for the
+    // template it came from. Deliberately no month or issue number — inventing
+    // dates is exactly what the accuracy work removed.
+    const base = masterTemplate.name.replace(/\s*[—–-]\s*Master\s*$/i, "").trim() || masterTemplate.name;
+    const copy = await duplicateTemplate({ ...masterTemplate, name: `${base} — new issue` }, "");
     if (copy) {
       setEditingTemplate(copy);
       setShowTemplateEditor(true);
@@ -755,7 +759,11 @@ const Campaigns_Page = () => {
       body_html: result.bodyHtml,
       category: result.category,
       template_kind: isNewsletter ? "newsletter" : "email",
-      design: result.design ?? {},
+      // The issue label rides along inside `design` because that is where the
+      // send-time shell reads it from. Without this the label the user typed
+      // shows in the wizard and the test send, then silently disappears from
+      // the real send.
+      design: { ...(result.design ?? {}), issueLabel: result.issueLabel ?? null },
       // Keep the article the copy was grounded in next to the copy itself, so
       // a later reviewer can re-check a claim against its source.
       source_material: result.sourceMaterial ?? null,
@@ -770,10 +778,20 @@ const Campaigns_Page = () => {
       });
       return;
     }
-    const matchSeg = segments.find(s => s.name.toLowerCase().includes(result.suggestedSegment.toLowerCase()));
-    await supabase.from("campaigns").insert({
+    // The model can omit a "required" field. Guard rather than throwing after
+    // the template row already exists, and never match every segment on "".
+    const suggested = typeof result.suggestedSegment === "string" ? result.suggestedSegment.trim().toLowerCase() : "";
+    const matchSeg = suggested ? segments.find(s => s.name.toLowerCase().includes(suggested)) : undefined;
+
+    const { error: campErr } = await supabase.from("campaigns").insert({
       name: result.campaignName, status: "draft", template_id: tpl.id, segment_id: matchSeg?.id || null,
     });
+    if (campErr) {
+      // Don't leave an orphan template behind that the user never asked for.
+      await supabase.from("email_templates").delete().eq("id", tpl.id);
+      toast({ title: "Failed to save campaign", description: campErr.message, variant: "destructive" });
+      return;
+    }
     invalidateAll();
     toast({ title: "AI campaign created!" });
   };
@@ -1465,6 +1483,7 @@ const Campaigns_Page = () => {
                   placeholder="Write your template here. Use the toolbar to format text, add links, lists, images and CTA buttons."
                   minHeight={300}
                   enableNewsletterTools
+                  isNewsletter={(editingTemplate as any)?.template_kind === "newsletter"}
                   design={(editingTemplate as any)?.design ?? {}}
                   onDesignChange={(d) => setEditingTemplate(p => ({ ...(p as any), design: d }))}
                   versionOwner={{ templateId: editingTemplate?.id ?? null }}
