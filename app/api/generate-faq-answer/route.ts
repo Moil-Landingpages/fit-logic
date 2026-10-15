@@ -1,9 +1,13 @@
+import { requireUser } from "@/lib/api-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { buildFitlogicKnowledgeContext } from "@/lib/fitlogic-knowledge";
 import { serverClient } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
+  const unauthorized = await requireUser(req);
+  if (unauthorized) return unauthorized;
+
   try {
     const { question, category } = await req.json();
     if (!question) return NextResponse.json({ error: "question is required" }, { status: 400 });

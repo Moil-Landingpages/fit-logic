@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { DEFAULT_NEWSLETTER_DESIGN, type NewsletterDesign } from "@/lib/newsletter-brand";
+import { apiFetch } from "@/lib/api-fetch";
 
 /* ========================================================================== */
 /* Design panel — the "Canva-style" controls the client asked for              */
@@ -195,7 +196,7 @@ export function TestSendDialog(props: TestSendDialogProps) {
   const send = async () => {
     setSending(true);
     try {
-      const res = await fetch("/api/send-test-email", {
+      const res = await apiFetch("/api/send-test-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

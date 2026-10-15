@@ -17,6 +17,7 @@ import { RichEmailEditor, type EmailAttachment } from "@/components/RichEmailEdi
 import { cn } from "@/lib/utils";
 import type { InquiryRow } from "@/components/InquiryList";
 import type { InquiryCategory, InquiryStatus } from "@/lib/types";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface InquiryMessageRow {
   id: string;
@@ -213,7 +214,7 @@ export function InquiryDetail({ inquiry, onUpdate }: Props) {
     if (!reply.trim()) return;
     setSending(true);
     try {
-      const res = await fetch("/api/send-inquiry-reply", {
+      const res = await apiFetch("/api/send-inquiry-reply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

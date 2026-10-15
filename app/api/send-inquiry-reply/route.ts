@@ -1,3 +1,4 @@
+import { requireUser } from "@/lib/api-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { serverClient } from "@/lib/supabase";
 import { sendEmail, wrapEmailHtml, sanitizeEmailHtml } from "@/lib/emailSender";
@@ -5,6 +6,9 @@ import { applyEmailVars } from "@/lib/email-vars";
 import { syncContactOnEmailSent } from "@/lib/contact-sync";
 
 export async function POST(req: NextRequest) {
+  const unauthorized = await requireUser(req);
+  if (unauthorized) return unauthorized;
+
   try {
     const { inquiry_id, reply_text, html_content, variables, attachments } = await req.json();
     if (!inquiry_id || !reply_text?.trim()) {

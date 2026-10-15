@@ -13,6 +13,7 @@ import { EmailPreview } from "@/components/EmailPreview";
 import { RichEmailEditor, type EmailAttachment } from "@/components/RichEmailEditor";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
+import { apiFetch } from "@/lib/api-fetch";
 
 export interface SequenceStep {
   id: string;
@@ -128,7 +129,7 @@ export function SequenceBuilder({ steps, onChange, anchorType = "relative" }: Se
   const handleAIImprove = async (step: SequenceStep) => {
     setImprovingStep(step.id);
     try {
-      const res = await fetch("/api/generate-campaign", {
+      const res = await apiFetch("/api/generate-campaign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

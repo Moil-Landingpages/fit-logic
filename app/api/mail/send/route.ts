@@ -1,3 +1,4 @@
+import { requireUser } from "@/lib/api-auth";
 import { NextResponse } from "next/server";
 import { serverClient } from "@/lib/supabase";
 import { getActiveProvider } from "@/lib/providers";
@@ -5,6 +6,9 @@ import { applyEmailVars } from "@/lib/email-vars";
 import { sanitizeEmailHtml } from "@/lib/emailSender";
 
 export async function POST(req: Request) {
+  const unauthorized = await requireUser(req);
+  if (unauthorized) return unauthorized;
+
   const sb = serverClient();
   try {
     const body = await req.json() as {

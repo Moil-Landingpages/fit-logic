@@ -1,3 +1,4 @@
+import { requireUser } from "@/lib/api-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { serverClient } from "@/lib/supabase";
 import { sendEmail, wrapEmailHtml, sanitizeEmailHtml } from "@/lib/emailSender";
@@ -35,6 +36,9 @@ interface SendEmailRequest {
  * AND the practice has connected a Gmail account in Settings.
  */
 export async function POST(req: NextRequest) {
+  const unauthorized = await requireUser(req);
+  if (unauthorized) return unauthorized;
+
   const sb = serverClient();
 
   try {

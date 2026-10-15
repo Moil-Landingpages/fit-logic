@@ -32,6 +32,7 @@ import { RichEmailEditor, type EmailAttachment } from "@/components/RichEmailEdi
 import { CampaignRecipients, type Recipient } from "@/components/CampaignRecipients";
 import { CAMPAIGN_STATUS_CONFIG, type CampaignStatus } from "@/lib/types";
 import { CampaignActivityLog } from "@/components/CampaignActivityLog";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface CampaignRow {
   id: string; name: string; status: string; campaign_type: string;
@@ -225,7 +226,7 @@ export function CampaignDetail({ campaign, onBack, onEdit }: Props) {
       // Trigger the queue and inspect what actually happened. Previously this
       // was fire-and-forget: a silent zero-send (test mode skipping every
       // recipient, missing Resend key, etc.) looked like success in the UI.
-      const res = await fetch("/api/process-campaign-queue", { method: "POST" });
+      const res = await apiFetch("/api/process-campaign-queue", { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data?.error ?? `Queue returned ${res.status}`);

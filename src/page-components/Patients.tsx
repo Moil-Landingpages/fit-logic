@@ -42,6 +42,7 @@ import { PatientTimeline } from "@/components/PatientTimeline";
 import { BulkImportDialog } from "@/components/BulkImportDialog";
 import { RichEmailEditor, type EmailAttachment } from "@/components/RichEmailEditor";
 import Appointments from "@/page-components/Appointments";
+import { apiFetch } from "@/lib/api-fetch";
 
 type Patient = {
   id: string;
@@ -1825,7 +1826,7 @@ export default function Patients() {
               if (!composePatient?.email || !composeText.trim()) return;
               setSendingEmail(true);
               try {
-                const res = await fetch("/api/send-email", {
+                const res = await apiFetch("/api/send-email", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({

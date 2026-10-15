@@ -17,6 +17,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { CATEGORY_CONFIG, type InquiryCategory } from "@/lib/types";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface FaqRow {
   id: string;
@@ -107,7 +108,7 @@ const FAQManager = () => {
     if (!form.question.trim()) { toast.error("Enter a question first"); return; }
     setAiGenerating(true);
     try {
-      const res = await fetch("/api/generate-faq-answer", {
+      const res = await apiFetch("/api/generate-faq-answer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: form.question, category: form.category }),

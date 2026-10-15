@@ -1,8 +1,9 @@
+import { requireUser } from "@/lib/api-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { serverClient } from "@/lib/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendEmail, wrapEmailHtml, sanitizeEmailHtml } from "@/lib/emailSender";
-import { loadNewsletterShellContext, wrapNewsletter } from "@/lib/newsletter-send";
+import { loadNewsletterShellContext, wrapNewsletter, findNewsletterSendBlockers } from "@/lib/newsletter-send";
 import { applyEmailVars, buildPatientVars } from "@/lib/email-vars";
 import { tryClaimCampaignLock, releaseCampaignLock } from "@/lib/campaign-lock";
 import { signUnsubToken } from "@/lib/unsub-token";
@@ -33,6 +34,9 @@ async function updateCampaignStats(supabase: SupabaseClient, campaignId: string)
 // 8am-Texas Mon–Fri batch still fires once and only once per business day.
 
 export async function POST(req: NextRequest) {
+  const unauthorized = await requireUser(req);
+  if (unauthorized) return unauthorized;
+
   const supabase = serverClient();
 
   try {
@@ -250,6 +254,16 @@ export async function POST(req: NextRequest) {
         if (tmpl) {
           templateSubject = tmpl.subject;
           templateBody = tmpl.body_html ?? "";
+          if (newsletterCtx) {
+            const blockers = findNewsletterSendBlockers(templateBody);
+            if (blockers.length) {
+              const message = `Newsletter blocked before sending: ${blockers.join("; ")}.`;
+              console.error("[process-campaign-queue]", campaign.name, message);
+              results.push({ campaign: campaign.name, campaign_id: campaign.id, recipients_considered: 0, sent: 0, failed: 0, skipped: 0, first_error: message });
+              await releaseCampaignLock(supabase, campaign.id);
+              continue;
+            }
+          }
           templateAttachments = Array.isArray(tmpl.attachments) ? tmpl.attachments : [];
         }
       }

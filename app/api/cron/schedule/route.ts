@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { serverClient } from "@/lib/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendEmail, wrapEmailHtml, sanitizeEmailHtml } from "@/lib/emailSender";
-import { loadNewsletterShellContext, wrapNewsletter } from "@/lib/newsletter-send";
+import { loadNewsletterShellContext, wrapNewsletter, findNewsletterSendBlockers } from "@/lib/newsletter-send";
 import { applyEmailVars, buildPatientVars } from "@/lib/email-vars";
 import { tryClaimCampaignLock, releaseCampaignLock } from "@/lib/campaign-lock";
 import { signUnsubToken } from "@/lib/unsub-token";
@@ -257,6 +257,16 @@ async function processCampaigns(supabase: SupabaseClient, baseUrl: string) {
       if (tmpl) {
         templateSubject = tmpl.subject;
         templateBody = tmpl.body_html ?? "";
+        if (newsletterCtx) {
+          const blockers = findNewsletterSendBlockers(templateBody);
+          if (blockers.length) {
+            const message = `Newsletter blocked before sending: ${blockers.join("; ")}.`;
+            console.error("[cron/schedule]", campaign.name, message);
+            results.push({ campaign: campaign.name, skipped: message });
+            await releaseCampaignLock(supabase, campaign.id);
+            continue;
+          }
+        }
         templateAttachments = Array.isArray(tmpl.attachments) ? tmpl.attachments : [];
       }
     }

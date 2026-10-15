@@ -19,6 +19,7 @@ import { VerificationChecklist, type GenerationVerification } from "@/components
 import type { NewsletterDesign } from "@/lib/newsletter-brand";
 import { RichEmailEditor } from "@/components/RichEmailEditor";
 import type { Segment } from "@/lib/campaign-data";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface AICampaignResult {
   campaignName: string;
@@ -168,7 +169,7 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
 
     setStep("prompt");
     try {
-      const res = await fetch("/api/generate-campaign", {
+      const res = await apiFetch("/api/generate-campaign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

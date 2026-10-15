@@ -16,6 +16,7 @@ import { VerificationChecklist, type GenerationVerification } from "@/components
 import { EmailPreview } from "@/components/EmailPreview";
 import { RichEmailEditor } from "@/components/RichEmailEditor";
 import type { Segment } from "@/lib/campaign-data";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface GeneratedEmail {
   step: number;
@@ -78,7 +79,7 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
     setError(null);
 
     try {
-      const res = await fetch("/api/generate-campaign", {
+      const res = await apiFetch("/api/generate-campaign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

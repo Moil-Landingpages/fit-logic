@@ -1,3 +1,4 @@
+import { requireUser } from "@/lib/api-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI, SchemaType, FunctionCallingMode, type FunctionDeclaration } from "@google/generative-ai";
 import { buildFitlogicKnowledgeContext } from "@/lib/fitlogic-knowledge";
@@ -92,6 +93,9 @@ type EmailType = (typeof ALLOWED_EMAIL_TYPES)[number];
 const MAX_SOURCE_CHARS = 24_000;
 
 export async function POST(req: NextRequest) {
+  const unauthorized = await requireUser(req);
+  if (unauthorized) return unauthorized;
+
   try {
     const body = await req.json();
     const {

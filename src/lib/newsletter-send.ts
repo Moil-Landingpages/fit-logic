@@ -81,3 +81,22 @@ export function wrapNewsletter(opts: {
     `<img src="${opts.trackingPixelUrl}" width="1" height="1" style="display:block;border:0;" alt="" />\n</body>`,
   );
 }
+
+/**
+ * Server-side last line of defence for live newsletter sends. The editor warns
+ * about these, but a draft saved with an image placeholder or a dead CTA link
+ * must never reach a real inbox. Returns human-readable blockers (empty = ok).
+ */
+export function findNewsletterSendBlockers(html: string): string[] {
+  const blockers: string[] = [];
+  if (/data-nl-image-placeholder/i.test(html) || /Image placeholder/i.test(html)) {
+    blockers.push("an image placeholder has not been replaced with a real photo");
+  }
+  if (/href\s*=\s*["']\s*(#|)\s*["']/i.test(html)) {
+    blockers.push("a link or CTA button has no destination (href is empty or '#')");
+  }
+  if (/\[[^\]]*(add|insert|your)[^\]]*\]/i.test(html.replace(/<[^>]+>/g, " "))) {
+    blockers.push("bracketed placeholder text (e.g. \"[add your stat here]\") is still in the copy");
+  }
+  return blockers;
+}
