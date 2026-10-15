@@ -256,6 +256,9 @@ export async function POST(req: NextRequest) {
           templateBody = tmpl.body_html ?? "";
           if (newsletterCtx) {
             const blockers = findNewsletterSendBlockers(templateBody);
+          if (!newsletterCtx.brand.clinicAddress?.trim()) {
+            blockers.push("the clinic mailing address is missing in Settings → Brand (required by CAN-SPAM)");
+          }
             if (blockers.length) {
               const message = `Newsletter blocked before sending: ${blockers.join("; ")}.`;
               console.error("[process-campaign-queue]", campaign.name, message);
@@ -545,7 +548,7 @@ export async function POST(req: NextRequest) {
         const unsubLink = `${trackBase}/campaign-unsubscribe?t=${trackingId}&s=${signUnsubToken(trackingId)}`;
 
         const trackedBody = bodyHtml.replace(/href="(https?:\/\/[^"]+)"/g, (_match: string, url: string) => {
-          const clickUrl = `${trackBase}/track-email?t=${trackingId}&a=click&url=${encodeURIComponent(url)}`;
+          const clickUrl = `${trackBase}/track-email?t=${trackingId}&a=click&url=${encodeURIComponent(url.replace(/&amp;/g, "&"))}`;
           return `href="${clickUrl}"`;
         });
 

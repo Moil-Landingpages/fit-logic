@@ -85,4 +85,26 @@ Needs a deployed environment; none of this can be tested from static code.
 
 ## 5. Independent code review
 
-_Pending — see below._
+An independent read-only review of the merged code found the items below. Its line numbers were unreliable, so each item was re-checked where noted. Nothing here was run end to end against a live deployment.
+
+**Fixed in this branch**
+- Live send is now also blocked when the clinic mailing address is blank (CAN-SPAM). Previously the footer silently omitted it. *(verified)*
+- Tracked links containing `&` were redirecting with a corrupt `amp;` parameter. The queue and cron now unescape before encoding. *(plausible from code, not exercised)*
+- Unauthenticated `send-test-email`. See section 2.
+
+**Open — fix before or soon after first send**
+1. **Accuracy sign-off is not enforced at send time.** `verified_at` is written but never read; the gate lives only in the wizard's Save button, and "New issue from master" copies skip it. Add a `verified_at` check to the send guard and clear it on any body edit.
+2. **Design panel does not restyle AI-generated sections.** `renderSection` writes font, size, colour and accent inline per element, so body font/size/line-height/colour and the CTA/callout accent changes have no effect; only page background, card colour, width and spacing do. The editor view also does not show design changes, only a test send does. Fix: re-render from stored `sections` when design changes. *(inline styling verified; panel behaviour not run)*
+3. **Test send and live send differ.** Live title is the internal template name (e.g. "…— Master"), and `issueLabel` is read from `design.issueLabel` but nothing persists it. Test shell is forced on for any template. Persist title and issue label on the template. *(verified)*
+4. **Test-send "Unsubscribe" is not a link**, yet the docs tell staff to click it. Real sends do include a working link. Update the docs or render a dummy link. *(verified)*
+5. **Merge fallback.** A contact with no first name gets a literal `Hi {first_name},`. Use a "there" fallback for newsletters.
+6. **Staff-editor XSS / sanitizer gaps.** `sanitizeEmailHtml` is regex-based and misses `<img src=x/onerror=…>`, unquoted `javascript:` hrefs and entity-encoded schemes; unsanitised HTML is loaded into the editor via `innerHTML`; the image-URL regex allows `"`. Low risk to recipients, real risk staff-to-staff. Use DOMPurify on load/restore and escape the URL.
+7. **CTA URL can be overridden by the model** if it returns its own `ctaUrl`; force the user's value, strip it otherwise.
+
+**Open — lower priority**
+- Undo resets on HTML-mode toggle; design/subject/preview edits and version restore of them are not undoable; the "50 versions" cap is only a query limit, not pruning.
+- Deleting an image or placeholder can leave an empty wrapper; alt text resets on placeholder replace and is not enforced.
+- Restored wizard drafts lose `design`; `brand_primary_color` is editable but never rendered; logo upload accepts SVG/WebP, which Outlook/Gmail do not render (restrict to PNG/JPG).
+- `setAsMaster` clears then sets without a transaction.
+- Sequence-type campaigns never get the branded shell.
+- Migration does not create the `emails` bucket or its policies (manual step, Phase 0 item 3).

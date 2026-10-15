@@ -259,6 +259,9 @@ async function processCampaigns(supabase: SupabaseClient, baseUrl: string) {
         templateBody = tmpl.body_html ?? "";
         if (newsletterCtx) {
           const blockers = findNewsletterSendBlockers(templateBody);
+            if (!newsletterCtx.brand.clinicAddress?.trim()) {
+              blockers.push("the clinic mailing address is missing in Settings → Brand (required by CAN-SPAM)");
+            }
           if (blockers.length) {
             const message = `Newsletter blocked before sending: ${blockers.join("; ")}.`;
             console.error("[cron/schedule]", campaign.name, message);
@@ -504,7 +507,7 @@ async function processCampaigns(supabase: SupabaseClient, baseUrl: string) {
       // Sanitize after variable replacement so injected values get stripped.
       const safeBody = sanitizeEmailHtml(bodyHtml);
       const trackedBody = safeBody.replace(/href="(https?:\/\/[^"]+)"/g, (_match: string, url: string) => {
-        const clickUrl = `${trackBase}/track-email?t=${trackingId}&a=click&url=${encodeURIComponent(url)}`;
+        const clickUrl = `${trackBase}/track-email?t=${trackingId}&a=click&url=${encodeURIComponent(url.replace(/&amp;/g, "&"))}`;
         return `href="${clickUrl}"`;
       });
 
