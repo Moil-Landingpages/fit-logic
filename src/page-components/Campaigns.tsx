@@ -10,7 +10,7 @@ import { matchesSegmentRules, resolveSegmentMembers, sanitizeSegmentRules } from
 import { fetchAllPatients, getPatientCount } from "@/lib/patient-queries";
 import {
   Mail, Plus, Send, Clock, FileText, Eye, Pencil, Users, BarChart3,
-  Search, Trash2, Copy, MousePointerClick, Sparkles, Layers, X, Filter, Star
+  Search, Trash2, Copy, MousePointerClick, Sparkles, Layers, X, Filter, Star, ShieldCheck
 } from "lucide-react";
 import { EmailPreview } from "@/components/EmailPreview";
 import { RichEmailEditor } from "@/components/RichEmailEditor";
@@ -530,8 +530,16 @@ const Campaigns_Page = () => {
         template_kind: anyT.template_kind ?? "email",
       };
       if (t.id) {
+        // Editing the body of a newsletter invalidates the accuracy sign-off:
+        // whoever reviewed the old copy has not reviewed the new copy.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { error } = await (supabase as any).from("email_templates").update(shared).eq("id", t.id);
+        const existing = templates.find((x: any) => x.id === t.id) as any;
+        const bodyChanged = existing && existing.body_html !== t.body_html;
+        const patch = anyT.template_kind === "newsletter" && bodyChanged
+          ? { ...shared, verified_at: null }
+          : shared;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { error } = await (supabase as any).from("email_templates").update(patch).eq("id", t.id);
         if (error) throw error;
       } else {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -614,6 +622,21 @@ const Campaigns_Page = () => {
     }
     queryClient.invalidateQueries({ queryKey: QK.emailTemplates });
     return data;
+  };
+
+  const markReviewed = async (tpl: any) => {
+    const ok = window.confirm(
+      "Confirm that a person has read this newsletter, checked every date, statistic and medical claim against the source, and approved it for patients.",
+    );
+    if (!ok) return;
+    const { error } = await (supabase as any)
+      .from("email_templates").update({ verified_at: new Date().toISOString() }).eq("id", tpl.id);
+    if (error) {
+      toast({ title: "Could not mark reviewed", description: error.message, variant: "destructive" });
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: QK.emailTemplates });
+    toast({ title: "Marked as reviewed", description: "This newsletter can now be sent." });
   };
 
   const setAsMaster = async (tpl: any) => {
@@ -994,6 +1017,11 @@ const Campaigns_Page = () => {
                     <div className="flex items-center gap-2 mb-0.5">
                       <h3 className="font-heading font-semibold text-foreground truncate">{tpl.name}</h3>
                       {catCfg && <Badge variant="outline" className={`${catCfg.color} text-[10px]`}>{catCfg.label}</Badge>}
+                      {(tpl as any).template_kind === "newsletter" && !isMaster(tpl) && (
+                        <Badge variant="outline" className={`text-[10px] ${(tpl as any).verified_at ? "text-emerald-600" : "text-amber-600"}`}>
+                          {(tpl as any).verified_at ? "Reviewed" : "Needs review"}
+                        </Badge>
+                      )}
                       {isMaster(tpl) && (
                         <Badge className="bg-primary/10 text-primary border-0 text-[10px]">
                           <Star className="h-3 w-3 mr-0.5" />Master
@@ -1011,6 +1039,11 @@ const Campaigns_Page = () => {
                     >
                       <Star className={`h-3.5 w-3.5 ${isMaster(tpl) ? "text-primary fill-primary" : ""}`} />
                     </Button>
+                    {(tpl as any).template_kind === "newsletter" && !isMaster(tpl) && !(tpl as any).verified_at && (
+                      <Button variant="ghost" size="icon" className="h-8 w-8" title="Mark as reviewed (required before sending)" onClick={() => markReviewed(tpl)}>
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                     <Button variant="ghost" size="icon" className="h-8 w-8" title="Duplicate" onClick={() => duplicateTemplate(tpl)}>
                       <Copy className="h-3.5 w-3.5" />
                     </Button>

@@ -165,12 +165,12 @@ export function sanitizeEmailHtml(html: string): string {
 
   // Strip on* event handler attributes (onclick, onload, onerror, etc.)
   // Matches both quoted and unquoted attribute values.
-  out = out.replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, "");
-  out = out.replace(/\son[a-z]+\s*=\s*'[^']*'/gi, "");
-  out = out.replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, "");
+  out = out.replace(/[\s/]on[a-z]+\s*=\s*"[^"]*"/gi, "");
+  out = out.replace(/[\s/]on[a-z]+\s*=\s*'[^']*'/gi, "");
+  out = out.replace(/[\s/]on[a-z]+\s*=\s*[^\s>]+/gi, "");
 
   // Neutralize javascript: and vbscript: URLs in href/src.
-  out = out.replace(/(\s(?:href|src|action|formaction)\s*=\s*["'])\s*(?:javascript|vbscript|data:text\/html)\s*:[^"']*/gi, '$1#');
+  out = out.replace(/(\s(?:href|src|action|formaction)\s*=\s*["']?)\s*(?:javascript|vbscript|data:text\/html)\s*:[^"'\s>]*/gi, '$1#');
 
   return out;
 }

@@ -38,6 +38,7 @@ Net: the feature work is essentially done. What remains is **production setup, h
 ## 3. Execution plan
 
 ### Phase 0 — Production setup (blocks first send) — owners: dev / Fiel / Megan
+> **Observed 2026-10-15:** saving an AI campaign failed with *"Could not find the 'design' column of 'email_templates' in the schema cache"*, and the Brand tab does not reach emails. Both mean migration `20260901000001` has **not** been applied to the production database. Until it is, newsletters silently fall back to the generic wrapper. Apply it (it now ends with `NOTIFY pgrst, 'reload schema'`).
 Not verifiable from code. Detail in `NEWSLETTER_ACTION_ITEMS.md`.
 1. Apply migration `20260901000001_newsletter_brand_kit.sql`.
 2. `GEMINI_API_KEY` set on the **production** Vercel environment.
@@ -92,7 +93,9 @@ An independent read-only review of the merged code found the items below. Its li
 - Tracked links containing `&` were redirecting with a corrupt `amp;` parameter. The queue and cron now unescape before encoding. *(plausible from code, not exercised)*
 - Unauthenticated `send-test-email`. See section 2.
 
-**Open — fix before or soon after first send**
+**Fixed in a follow-up commit** (items 1–3, 5–7 below; see git log): send-time accuracy sign-off with a "Mark as reviewed" button (editing the body clears it), Design panel now restyles existing copy (`newsletter-design-apply.ts`, tested in Chromium), issue label persisted and internal template name no longer used as the headline, first-name fallback "there" for newsletters, CTA URL forced to the user's choice, sanitizer/image-URL hardening, PNG/JPG-only logos, `NOTIFY pgrst` appended to the migration. Still open: the test-send Unsubscribe is a non-link (docs updated), undo/version gaps, and the "lower priority" list.
+
+**Original list**
 1. **Accuracy sign-off is not enforced at send time.** `verified_at` is written but never read; the gate lives only in the wizard's Save button, and "New issue from master" copies skip it. Add a `verified_at` check to the send guard and clear it on any body edit.
 2. **Design panel does not restyle AI-generated sections.** `renderSection` writes font, size, colour and accent inline per element, so body font/size/line-height/colour and the CTA/callout accent changes have no effect; only page background, card colour, width and spacing do. The editor view also does not show design changes, only a test send does. Fix: re-render from stored `sections` when design changes. *(inline styling verified; panel behaviour not run)*
 3. **Test send and live send differ.** Live title is the internal template name (e.g. "…— Master"), and `issueLabel` is read from `design.issueLabel` but nothing persists it. Test shell is forced on for any template. Persist title and issue label on the template. *(verified)*

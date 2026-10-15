@@ -256,6 +256,9 @@ export async function POST(req: NextRequest) {
           templateBody = tmpl.body_html ?? "";
           if (newsletterCtx) {
             const blockers = findNewsletterSendBlockers(templateBody);
+          if (!newsletterCtx.verifiedAt) {
+            blockers.push("the accuracy check has not been signed off — open Campaigns → Templates and click Mark as reviewed");
+          }
           if (!newsletterCtx.brand.clinicAddress?.trim()) {
             blockers.push("the clinic mailing address is missing in Settings → Brand (required by CAN-SPAM)");
           }
@@ -532,7 +535,7 @@ export async function POST(req: NextRequest) {
           lastName = parts.slice(1).join(" ") || "";
         }
         const vars = buildPatientVars({
-          firstName, lastName,
+          firstName: firstName || (newsletterCtx ? "there" : ""), lastName,
           email: recipient.email,
           fallbackName: recipient.name,
           extra: { company: patient?.company ?? "" },

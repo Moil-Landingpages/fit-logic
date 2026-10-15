@@ -162,3 +162,8 @@ SELECT
 WHERE NOT EXISTS (
   SELECT 1 FROM public.email_templates WHERE template_kind = 'newsletter' AND is_master
 );
+
+-- PostgREST caches the schema; without this the new columns can keep failing
+-- with "Could not find the 'design' column ... in the schema cache" after the
+-- migration has run.
+NOTIFY pgrst, 'reload schema';

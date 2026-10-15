@@ -339,11 +339,11 @@ You MUST use the generate_newsletter tool to return your response.`;
         return NextResponse.json({ error: "AI returned no newsletter sections" }, { status: 500 });
       }
 
-      // Backfill the CTA destination the user picked if the model omitted it.
-      if (typeof ctaUrl === "string" && ctaUrl.startsWith("http")) {
-        for (const s of sections) {
-          if ((s.kind === "cta" || s.ctaLabel) && !s.ctaUrl) s.ctaUrl = ctaUrl;
-        }
+      // The CTA destination is the user's choice, never the model's: force the
+      // picked URL, and strip any URL the model invented when none was picked.
+      const userCtaUrl = typeof ctaUrl === "string" && ctaUrl.startsWith("http") ? ctaUrl : null;
+      for (const s of sections) {
+        if (s.kind === "cta" || s.ctaLabel) s.ctaUrl = userCtaUrl;
       }
 
       const resolvedDesign = resolveDesign(brand, (design ?? null) as NewsletterDesign | null);

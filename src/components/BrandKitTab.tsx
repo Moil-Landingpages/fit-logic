@@ -107,8 +107,8 @@ export function BrandKitTab({
 
   const uploadLogo = async (file?: File) => {
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast({ title: "Invalid file", description: "Please pick an image.", variant: "destructive" });
+    if (!["image/png", "image/jpeg"].includes(file.type)) {
+      toast({ title: "Invalid file", description: "Use a PNG or JPG logo — SVG and WebP do not render in Outlook or Gmail.", variant: "destructive" });
       return;
     }
     if (file.size > 2 * 1024 * 1024) {
@@ -187,7 +187,7 @@ export function BrandKitTab({
                   </div>
                 )}
                 <label className="cursor-pointer">
-                  <input type="file" accept="image/*" className="hidden" onChange={(e) => uploadLogo(e.target.files?.[0])} />
+                  <input type="file" accept="image/png,image/jpeg" className="hidden" onChange={(e) => uploadLogo(e.target.files?.[0])} />
                   <span className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border text-xs hover:bg-accent transition-colors">
                     {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                     Upload

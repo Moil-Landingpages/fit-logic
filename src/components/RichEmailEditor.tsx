@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { useEditorHistory } from "@/hooks/use-editor-history";
 import { DesignPanel, TestSendDialog, VersionHistoryDialog, type VersionOwner } from "@/components/EmailDesignTools";
 import type { NewsletterDesign } from "@/lib/newsletter-brand";
+import { applyDesignToHtml } from "@/lib/newsletter-design-apply";
 
 export interface EmailAttachment {
   id: string;
@@ -592,6 +593,21 @@ export function RichEmailEditor({
     onChange(html);
   }, [onChange, applySelectionOutline]);
 
+  /**
+   * Design-panel changes restyle the copy that is already in the editor (the
+   * generated sections carry inline styles that would otherwise win over the
+   * shell), as one undoable step, then hand the new tokens to the parent.
+   */
+  const handleDesignChange = useCallback((nextDesign: NewsletterDesign) => {
+    const current = mode === "visual" && editorRef.current ? editorRef.current.innerHTML : value;
+    const restyled = applyDesignToHtml(current, design, nextDesign);
+    if (restyled !== current) {
+      if (editorRef.current && mode === "visual") editorRef.current.innerHTML = restyled;
+      pushChange(restyled);
+    }
+    onDesignChange?.(nextDesign);
+  }, [mode, value, design, pushChange, onDesignChange]);
+
   const handleUndo = useCallback(() => {
     const html = history.undo();
     if (html !== null) applySnapshot(html);
@@ -1107,7 +1123,7 @@ export function RichEmailEditor({
             {enableNewsletterTools && onDesignChange && (
               <>
                 <Separator orientation="vertical" className="h-6 mx-1" />
-                <DesignPanel design={design ?? {}} onChange={onDesignChange} />
+                <DesignPanel design={design ?? {}} onChange={handleDesignChange} />
               </>
             )}
 
@@ -1674,7 +1690,7 @@ export function RichEmailEditor({
                   setImageUrl(v);
                   // Pasting a URL used to leave "Insert Image" disabled because
                   // only the upload path set imagePreview.
-                  setImagePreview(/^https?:\/\/\S+$/i.test(v.trim()) ? v.trim() : null);
+                  setImagePreview(/^https?:\/\/[^\s\"'<>]+$/i.test(v.trim()) ? v.trim() : null);
                 }}
                 className="h-9 mt-1"
                 placeholder="https://example.com/image.jpg"

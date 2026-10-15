@@ -20,6 +20,8 @@ export interface NewsletterShellContext {
   design: NewsletterDesign | null;
   issueLabel: string | null;
   title: string | null;
+  /** When a person signed off the accuracy check; null = not reviewed. */
+  verifiedAt: string | null;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -37,7 +39,7 @@ export async function loadNewsletterShellContext(
   try {
     const { data: tpl, error } = await sb
       .from("email_templates")
-      .select("name, template_kind, design")
+      .select("name, template_kind, design, verified_at")
       .eq("id", templateId)
       .maybeSingle();
 
@@ -50,7 +52,10 @@ export async function loadNewsletterShellContext(
       brand: brandKitFromSettings(settings),
       design,
       issueLabel: (design as any)?.issueLabel ?? null,
-      title: tpl.name ?? null,
+      // Internal template names ("... — Master") must never become the visible
+      // <h1>; only an explicit design.title does.
+      verifiedAt: (tpl.verified_at as string | null) ?? null,
+      title: ((design as any)?.title as string | undefined) ?? null,
     };
   } catch (e) {
     console.warn("[newsletter-send] shell context unavailable, falling back to standard wrapper", e);

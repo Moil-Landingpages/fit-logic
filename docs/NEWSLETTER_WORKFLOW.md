@@ -27,7 +27,8 @@ is in the app; nothing needs a developer.
    change.
 6. **Test send** — send yourself a copy, open it on desktop *and* phone, click
    every link.
-7. Assign the segment, schedule, send.
+7. **Campaigns → Templates → Mark as reviewed** (shield icon). A newsletter cannot be sent until someone signs off the accuracy check; editing the body clears the sign-off.
+8. Assign the segment, schedule, send. The send is also refused if an image placeholder, an empty/`#` link, or `[bracketed]` placeholder text remains, or if the clinic address is blank in Settings → Brand.
 
 ---
 
@@ -195,7 +196,7 @@ campaign email editor).
 - Sends one copy to any address, subject prefixed `[TEST]`.
 - Merge variables are filled with sample values, so you see `Hi Taylor,` rather
   than `Hi {first_name},`.
-- Wrapped in the real branded shell, so what you see is what recipients get.
+- Wrapped in the real branded shell, so what you see is what recipients get. The footer's "Unsubscribe" is not a live link in a test send; real sends include a working one.
 - Nothing is logged to the campaign, no recipient is enrolled, the daily send
   cap and suppression list are untouched.
 

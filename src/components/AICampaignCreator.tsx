@@ -216,7 +216,9 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
     if (result) {
       onAccept({
         ...result,
-        design,
+        // Persist the issue label with the template's design so live sends show
+        // it too (the shell reads design.issueLabel); previously test-only.
+        design: { ...design, issueLabel: issueLabel.trim() || result.issueLabel || undefined } as NewsletterDesign,
         sourceMaterial: sourceMaterial.trim() || null,
         issueLabel: issueLabel.trim() || result.issueLabel || null,
         verification: result.verification,
