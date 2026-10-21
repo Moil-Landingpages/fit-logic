@@ -24,6 +24,8 @@ export interface EmailPayload {
   from?: string;
   /** Used for List-Unsubscribe header on bulk sends. Optional for one-off compose. */
   listUnsubscribeUrl?: string;
+  /** Reply-To header (Resend only; Gmail replies go to the connected account). */
+  replyTo?: string;
   /** Tracking ID surfaced on Resend X-Tracking-ID header. */
   trackingId?: string;
   /** Optional file attachments. Forwarded to both Resend and Gmail. */
@@ -63,6 +65,7 @@ async function sendViaResend(apiKey: string, payload: EmailPayload): Promise<Sen
         to: payload.toName ? [`${payload.toName} <${payload.to}>`] : [payload.to],
         subject: payload.subject,
         html: payload.html,
+        ...(payload.replyTo ? { reply_to: payload.replyTo } : {}),
         ...(Object.keys(headers).length ? { headers } : {}),
         ...(payload.attachments?.length
           ? {
@@ -190,8 +193,10 @@ export function wrapEmailHtml(opts: {
   trackingPixelUrl?: string;
   unsubscribeUrl?: string;
   preheader?: string;
+  /** Physical postal address (CAN-SPAM). Shown in the footer when set. */
+  postalAddress?: string | null;
 }): string {
-  const { bodyFragment, trackingPixelUrl, unsubscribeUrl, preheader } = opts;
+  const { bodyFragment, trackingPixelUrl, unsubscribeUrl, preheader, postalAddress } = opts;
 
   const preheaderHtml = preheader
     ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff;">${preheader}</div>`
@@ -204,6 +209,7 @@ export function wrapEmailHtml(opts: {
   const unsubscribeHtml = unsubscribeUrl
     ? `<tr>
     <td style="padding:32px 24px 24px;border-top:1px solid #e5e7eb;text-align:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:11px;color:#9ca3af;">
+      ${postalAddress ? `<p style="margin:0 0 8px;">${postalAddress.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br />")}</p>` : ""}
       <p style="margin:0 0 8px;">You received this email because you opted in.</p>
       <a href="${unsubscribeUrl}" style="color:#9ca3af;text-decoration:underline;">Unsubscribe</a>
     </td>

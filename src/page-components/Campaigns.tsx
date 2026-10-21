@@ -38,6 +38,7 @@ import { SequenceBuilder, type SequenceStep as BuilderSequenceStep } from "@/com
 import { CampaignRecipients, type Recipient } from "@/components/CampaignRecipients";
 import { CampaignScheduleSettings, type ScheduleConfig } from "@/components/CampaignScheduleSettings";
 import { CampaignDetail } from "@/components/CampaignDetail";
+import { describeSaveError } from "@/lib/db-errors";
 import {
   CAMPAIGN_STATUS_CONFIG, TEMPLATE_CATEGORY_CONFIG,
   type CampaignStatus,
@@ -767,7 +768,9 @@ const Campaigns_Page = () => {
     toast({ title: "Campaign duplicated" });
   };
 
-  const handleAIAccept = async (result: any) => {
+  /** Resolves to an error message, or null on success. The wizard dialogs keep
+   * the draft open (and recoverable) unless this returns null. */
+  const handleAIAccept = async (result: any): Promise<string | null> => {
     const isNewsletter = result.kind === "newsletter";
     // Cast through any — template_kind / design / verification_notes postdate
     // the auto-generated supabase types (migration 20260901000001).
@@ -786,29 +789,35 @@ const Campaigns_Page = () => {
       verified_at: result.verification ? new Date().toISOString() : null,
     }).select().single();
     if (tplErr || !tpl) {
-      toast({
-        title: "Failed to save campaign",
-        description: tplErr?.message ?? "The template could not be created.",
-        variant: "destructive",
-      });
-      return;
+      const msg = describeSaveError(tplErr?.message ?? "The template could not be created.");
+      toast({ title: "Failed to save campaign", description: msg, variant: "destructive" });
+      return msg;
     }
     const matchSeg = segments.find(s => s.name.toLowerCase().includes(result.suggestedSegment.toLowerCase()));
-    await supabase.from("campaigns").insert({
+    const { error: campErr } = await supabase.from("campaigns").insert({
       name: result.campaignName, status: "draft", template_id: tpl.id, segment_id: matchSeg?.id || null,
     });
+    if (campErr) {
+      // The template saved but the campaign did not; keep the draft open so
+      // nothing is lost, and refresh so the template is visible.
+      invalidateAll();
+      const msg = describeSaveError(campErr.message);
+      toast({ title: "Template saved, campaign was not", description: msg, variant: "destructive" });
+      return msg;
+    }
     invalidateAll();
     toast({ title: "AI campaign created!" });
+    return null;
   };
 
-  const handleAIWizardAccept = async (result: any) => {
+  const handleAIWizardAccept = async (result: any): Promise<string | null> => {
     const isSequence = result.emails?.length > 1;
     const matchSeg = segments.find(s => s.name.toLowerCase().includes(result.suggestedSegment.toLowerCase()));
 
     if (isSequence) {
       if (!Array.isArray(result.emails) || result.emails.length === 0) {
         toast({ title: "AI returned no email steps", description: "Try generating again.", variant: "destructive" });
-        return;
+        return "AI returned no email steps. Try generating again.";
       }
       // Create campaign
       const { data: newCampaign, error } = await supabase.from("campaigns").insert({
@@ -816,8 +825,9 @@ const Campaigns_Page = () => {
         segment_id: matchSeg?.id || segments[0]?.id || null,
       }).select().single();
       if (error || !newCampaign) {
-        toast({ title: "Failed to create campaign", description: error?.message ?? "Unknown error", variant: "destructive" });
-        return;
+        const msg = describeSaveError(error?.message ?? "Unknown error");
+        toast({ title: "Failed to create campaign", description: msg, variant: "destructive" });
+        return msg;
       }
       // Insert sequence steps. Force step_number to array index + 1 — the LLM
       // sometimes returns 0-indexed steps which then never match the queue's
@@ -839,21 +849,32 @@ const Campaigns_Page = () => {
           variant: "destructive",
         });
         invalidateAll();
-        return;
+        return describeSaveError(seqErr.message);
       }
     } else {
       // Single email — create template + campaign
       const email = result.emails[0];
-      const { data: tpl } = await supabase.from("email_templates").insert({
+      const { data: tpl, error: tplErr } = await supabase.from("email_templates").insert({
         name: result.campaignName, subject: email.subject, preview_text: email.previewText, body_html: email.bodyHtml, category: result.category,
       }).select().single();
-      if (!tpl) return;
-      await supabase.from("campaigns").insert({
+      if (tplErr || !tpl) {
+        const msg = describeSaveError(tplErr?.message ?? "The template could not be created.");
+        toast({ title: "Failed to save campaign", description: msg, variant: "destructive" });
+        return msg;
+      }
+      const { error: campErr } = await supabase.from("campaigns").insert({
         name: result.campaignName, status: "draft", template_id: tpl.id, segment_id: matchSeg?.id || null,
       });
+      if (campErr) {
+        invalidateAll();
+        const msg = describeSaveError(campErr.message);
+        toast({ title: "Template saved, campaign was not", description: msg, variant: "destructive" });
+        return msg;
+      }
     }
     invalidateAll();
     toast({ title: "AI campaign created!" });
+    return null;
   };
 
   /* Detail view */

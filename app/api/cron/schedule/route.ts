@@ -1,3 +1,4 @@
+import { sendIdentityFromSettings, formatFromHeader } from "@/lib/send-identity";
 import { NextRequest, NextResponse } from "next/server";
 import { serverClient } from "@/lib/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -54,8 +55,11 @@ async function processCampaigns(supabase: SupabaseClient, baseUrl: string) {
   const emailApiKey: string = process.env.RESEND_API_KEY ?? settings?.email_provider_api_key ?? "";
   // FROM_EMAIL env var takes priority over the DB setting
   const fromAddress = process.env.FROM_EMAIL ?? settings?.email_from_address ?? "";
-  const fromName = settings?.email_from_name ?? "FitLogic";
-  const fromHeader = fromName ? `${fromName} <${fromAddress}>` : fromAddress;
+  // select("*") so this also works on databases that predate email_reply_to /
+  // clinic_address; the limited select above would error on a missing column.
+  const { data: fullSettings } = await supabase.from("practice_settings").select("*").limit(1).maybeSingle();
+  const identity = sendIdentityFromSettings(fullSettings);
+  const fromHeader = fromAddress ? formatFromHeader(identity.fromName, fromAddress) : "";
 
   // Check if Gmail is connected for fallback
   const hasGmail = !!(settings as unknown as { google_gmail_token?: unknown })?.google_gmail_token;
@@ -127,6 +131,16 @@ async function processCampaigns(supabase: SupabaseClient, baseUrl: string) {
     if (!claimed) {
       console.log("[cron/schedule] skipping — another worker holds the lock", { campaign: campaign.name });
       results.push({ campaign: campaign.name, skipped: "another worker is processing" });
+      continue;
+    }
+
+    // CAN-SPAM: every bulk marketing email needs a physical postal address.
+    // Test mode only mails internal test contacts, so it is exempt.
+    if (!testModeOnly && !identity.postalAddress) {
+      const message = "Blocked: add the clinic mailing address in Settings → Brand (required by CAN-SPAM).";
+      console.error("[cron/schedule]", campaign.name, message);
+      results.push({ campaign: campaign.name, skipped: message });
+      await releaseCampaignLock(supabase, campaign.id);
       continue;
     }
 
@@ -522,6 +536,7 @@ async function processCampaigns(supabase: SupabaseClient, baseUrl: string) {
             trackingPixelUrl: trackPixel,
           })
         : wrapEmailHtml({
+            postalAddress: identity.postalAddress,
             bodyFragment: trackedBody,
             trackingPixelUrl: trackPixel,
             unsubscribeUrl: unsubLink,
@@ -534,7 +549,7 @@ async function processCampaigns(supabase: SupabaseClient, baseUrl: string) {
         {
           to: recipient.email, toName: recipient.name,
           subject, html: finalHtml,
-          from: fromHeader, listUnsubscribeUrl: unsubLink, trackingId,
+          from: fromHeader, replyTo: identity.replyTo ?? undefined, listUnsubscribeUrl: unsubLink, trackingId,
           attachments: stepAttachments.length ? stepAttachments : undefined,
         },
         baseUrl,

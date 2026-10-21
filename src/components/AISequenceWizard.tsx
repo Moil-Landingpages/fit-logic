@@ -41,7 +41,8 @@ interface AISequenceWizardProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   segments: Segment[];
-  onAccept: (result: AIWizardResult) => void;
+  /** Resolves to an error message, or null/undefined on success. The draft is kept on failure. */
+  onAccept: (result: AIWizardResult) => Promise<string | null | void> | string | null | void;
 }
 
 type WizardStep = "goal" | "details" | "generating" | "review";
@@ -69,6 +70,8 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
   const [sourceMaterial, setSourceMaterial] = useState("");
   const [strictGrounding, setStrictGrounding] = useState(true);
   const [verified, setVerified] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [result, setResult] = useState<AIWizardResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [previewEmail, setPreviewEmail] = useState<GeneratedEmail | null>(null);
@@ -134,15 +137,30 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
     setResult({ ...result, emails: newEmails });
   };
 
-  const handleAccept = () => {
-    if (result) {
-      onAccept(result);
-      handleReset();
-      onOpenChange(false);
+  const handleAccept = async () => {
+    if (!result) return;
+    setIsSaving(true);
+    setSaveError(null);
+    let failure: string | null | void;
+    try {
+      failure = await onAccept(result);
+    } catch (e) {
+      failure = e instanceof Error ? e.message : "Save failed";
+    } finally {
+      setIsSaving(false);
     }
+    // Keep the generated emails on screen if the save failed, so nothing has
+    // to be regenerated.
+    if (failure) {
+      setSaveError(failure);
+      return;
+    }
+    handleReset();
+    onOpenChange(false);
   };
 
   const handleReset = () => {
+    setSaveError(null);
     setStep("goal");
     setGoal("");
     setEmailCount("3");
@@ -554,6 +572,13 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
           )}
         </div>
 
+        {saveError && step === "review" && (
+          <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive whitespace-pre-line">
+            <p className="font-medium">Could not save. Your generated emails are still here.</p>
+            <p className="text-xs mt-1">{saveError}</p>
+          </div>
+        )}
+
         <DialogFooter className="mt-2">
           {step === "goal" && (
             <>
@@ -580,10 +605,11 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
               <Button
                 className="gradient-brand text-primary-foreground"
                 onClick={handleAccept}
-                disabled={!verified}
+                disabled={!verified || isSaving}
                 title={verified ? undefined : "Confirm the accuracy check first"}
               >
-                <Check className="h-4 w-4 mr-1.5" />Use This Campaign
+                {isSaving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Check className="h-4 w-4 mr-1.5" />}
+                {isSaving ? "Saving…" : "Use This Campaign"}
               </Button>
             </>
           )}

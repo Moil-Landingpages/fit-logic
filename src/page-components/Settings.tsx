@@ -1,5 +1,6 @@
 "use client";
 
+import { describeSaveError } from "@/lib/db-errors";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -69,6 +70,8 @@ type PracticeSettings = {
   email_provider_api_key: string | null;
   email_from_address: string | null;
   email_from_name: string | null;
+  /** Reply-To set on campaign mail (migration 20261022000001). */
+  email_reply_to?: string | null;
   /** When true, only patients flagged is_test_contact=true receive sends. */
   test_mode_only?: boolean | null;
 };
@@ -430,6 +433,74 @@ function ProviderLockBanner({ provider }: { provider: "google" | "microsoft" }) 
   );
 }
 
+// ─── Sender identity ─────────────────────────────────────────────────────────
+// Display name, sending address and Reply-To for campaign email. The previous
+// From Name / From Email form was commented out, which left no way to change
+// the "FitLogic" fallback name from the UI.
+function SenderIdentityCard({
+  settings,
+  onSave,
+}: {
+  settings: PracticeSettings;
+  onSave: (updates: Partial<PracticeSettings>) => void;
+}) {
+  const [fromName, setFromName] = useState(settings.email_from_name ?? "");
+  const [fromAddress, setFromAddress] = useState(settings.email_from_address ?? "");
+  const [replyTo, setReplyTo] = useState(settings.email_reply_to ?? "");
+  const emailRe = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]{2,}$/;
+  const replyInvalid = replyTo.trim() !== "" && !emailRe.test(replyTo.trim());
+  const addressInvalid = fromAddress.trim() !== "" && !emailRe.test(fromAddress.trim());
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Sender identity</CardTitle>
+        <CardDescription className="text-xs">
+          How campaign email appears in the inbox, and where replies go. Campaign email is sent through
+          Resend, not through the connected Gmail or Outlook account.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label className="text-xs">From name</Label>
+            <Input value={fromName} onChange={(e) => setFromName(e.target.value)} placeholder="Fit Logic Functional Medicine" className="h-9" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">From email</Label>
+            <Input type="email" value={fromAddress} onChange={(e) => setFromAddress(e.target.value)} placeholder="hello@yourdomain.com" className="h-9" />
+            {addressInvalid && <p className="text-[10px] text-destructive">Enter a valid email address.</p>}
+          </div>
+        </div>
+        <div className="space-y-1.5 max-w-md">
+          <Label className="text-xs">Reply-To email</Label>
+          <Input type="email" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} placeholder="info@fitlogicfunctionalmedicine.com" className="h-9" />
+          {replyInvalid
+            ? <p className="text-[10px] text-destructive">Enter a valid email address.</p>
+            : <p className="text-[10px] text-muted-foreground">Replies go here instead of the From address. Leave blank to reply to the From address.</p>}
+        </div>
+        <p className="text-[10px] text-muted-foreground">
+          The From email must be on a domain verified in Resend. If the server has a FROM_EMAIL environment variable set, it overrides the From email here.
+        </p>
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            disabled={replyInvalid || addressInvalid}
+            onClick={() => onSave({
+              email_from_name: fromName.trim() || null,
+              email_from_address: fromAddress.trim() || null,
+              email_reply_to: replyTo.trim() || null,
+            })}
+          >
+            Save sender identity
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+
 function IntegrationsTab({
   settings,
   onSave,
@@ -638,6 +709,8 @@ function IntegrationsTab({
           </div>
         </CardContent>
       </Card>
+
+      <SenderIdentityCard settings={settings} onSave={onSave} />
 
       {/* Email Delivery Provider — temporarily disabled; using Resend directly */}
       {/* <Card>
@@ -1172,7 +1245,13 @@ const Settings = () => {
       queryClient.invalidateQueries({ queryKey: QK.settings });
       toast.success("Settings saved");
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to save settings"),
+    // Supabase errors are plain objects, not Error instances, so the old
+    // `instanceof Error` check always fell through to the generic message and
+    // hid the real cause (e.g. a missing column from an unapplied migration).
+    onError: (e) => {
+      const raw = e instanceof Error ? e.message : (e as { message?: string } | null)?.message;
+      toast.error(describeSaveError(raw || "Failed to save settings"), { duration: 15000 });
+    },
   });
 
   if (isLoading) {

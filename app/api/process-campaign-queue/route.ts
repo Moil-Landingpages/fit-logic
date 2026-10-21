@@ -1,3 +1,4 @@
+import { sendIdentityFromSettings, formatFromHeader } from "@/lib/send-identity";
 import { requireUser } from "@/lib/api-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { serverClient } from "@/lib/supabase";
@@ -62,8 +63,11 @@ export async function POST(req: NextRequest) {
     const emailApiKey: string = process.env.RESEND_API_KEY ?? settings?.email_provider_api_key ?? "";
     // FROM_EMAIL env var takes priority over the DB setting
     const fromAddress = process.env.FROM_EMAIL ?? settings?.email_from_address ?? "";
-    const fromName = settings?.email_from_name ?? "FitLogic";
-    const fromHeader = fromName ? `${fromName} <${fromAddress}>` : fromAddress;
+    // select("*") so this also works on databases that predate email_reply_to /
+    // clinic_address; the limited select above would error on a missing column.
+    const { data: fullSettings } = await supabase.from("practice_settings").select("*").limit(1).maybeSingle();
+    const identity = sendIdentityFromSettings(fullSettings);
+    const fromHeader = fromAddress ? formatFromHeader(identity.fromName, fromAddress) : "";
 
     // Check if Gmail is connected for fallback (cast through unknown as types predate this column)
     const hasGmail = !!(settings as unknown as { google_gmail_token?: unknown })?.google_gmail_token;
@@ -115,6 +119,16 @@ export async function POST(req: NextRequest) {
       if (!claimed) {
         console.log("[process-campaign-queue] skipping — another worker holds the lock", { campaign: campaign.name });
         results.push({ campaign: campaign.name, skipped: "another worker is processing" });
+        continue;
+      }
+
+      // CAN-SPAM: every bulk marketing email needs a physical postal address.
+      // Test mode only mails internal test contacts, so it is exempt.
+      if (!testModeOnly && !identity.postalAddress) {
+        const message = "Blocked: add the clinic mailing address in Settings → Brand before sending to real recipients (required by CAN-SPAM).";
+        console.error("[process-campaign-queue]", campaign.name, message);
+        results.push({ campaign: campaign.name, campaign_id: campaign.id, recipients_considered: 0, sent: 0, failed: 0, skipped: 0, first_error: message });
+        await releaseCampaignLock(supabase, campaign.id);
         continue;
       }
 
@@ -563,6 +577,7 @@ export async function POST(req: NextRequest) {
               trackingPixelUrl: trackPixel,
             })
           : wrapEmailHtml({
+              postalAddress: identity.postalAddress,
               bodyFragment: trackedBody,
               trackingPixelUrl: trackPixel,
               unsubscribeUrl: unsubLink,
@@ -576,7 +591,7 @@ export async function POST(req: NextRequest) {
           {
             to: recipient.email, toName: recipient.name,
             subject, html: finalHtml,
-            from: fromHeader, listUnsubscribeUrl: unsubLink, trackingId,
+            from: fromHeader, replyTo: identity.replyTo ?? undefined, listUnsubscribeUrl: unsubLink, trackingId,
             attachments: stepAttachments.length ? stepAttachments : undefined,
           },
           baseUrl,

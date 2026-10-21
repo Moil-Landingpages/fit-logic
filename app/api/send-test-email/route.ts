@@ -1,3 +1,4 @@
+import { sendIdentityFromSettings, formatFromHeader } from "@/lib/send-identity";
 import { requireUser } from "@/lib/api-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { serverClient } from "@/lib/supabase";
@@ -51,8 +52,8 @@ export async function POST(req: NextRequest) {
     const resendApiKey: string =
       process.env.RESEND_API_KEY ?? settings?.email_provider_api_key ?? "";
     const fromAddress = process.env.FROM_EMAIL ?? settings?.email_from_address ?? "";
-    const fromName = settings?.email_from_name ?? "FitLogic";
-    const fromHeader = fromName ? `${fromName} <${fromAddress}>` : fromAddress;
+    const identity = sendIdentityFromSettings(settings);
+    const fromHeader = fromAddress ? formatFromHeader(identity.fromName, fromAddress) : "";
     const hasGmail = !!(settings as unknown as { google_gmail_token?: unknown })?.google_gmail_token;
 
     if (!resendApiKey && !hasGmail) {
@@ -87,7 +88,7 @@ export async function POST(req: NextRequest) {
           // the row so the layout matches the real send.
           unsubscribeUrl: null,
         })
-      : wrapEmailHtml({ bodyFragment: processedBody, preheader: previewText ?? undefined });
+      : wrapEmailHtml({ bodyFragment: processedBody, preheader: previewText ?? undefined, postalAddress: identity.postalAddress });
 
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
 
@@ -99,6 +100,7 @@ export async function POST(req: NextRequest) {
         subject: processedSubject,
         html: finalHtml,
         from: fromHeader || undefined,
+        replyTo: identity.replyTo ?? undefined,
       },
       baseUrl,
       hasGmail,

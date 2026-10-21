@@ -45,7 +45,8 @@ interface AICampaignCreatorProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   segments: Segment[];
-  onAccept: (result: AICampaignResult) => void;
+  /** Resolves to an error message, or null/undefined on success. The draft is kept on failure. */
+  onAccept: (result: AICampaignResult) => Promise<string | null | void> | string | null | void;
 }
 
 const EXAMPLE_PROMPTS = [
@@ -90,6 +91,8 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
   const [step, setStep] = useState<CreatorStep>("prompt");
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [result, setResult] = useState<AICampaignResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showEditFields, setShowEditFields] = useState(true);
@@ -212,9 +215,13 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
     }
   };
 
-  const handleAccept = () => {
+  const handleAccept = async () => {
     if (result) {
-      onAccept({
+      setIsSaving(true);
+      setSaveError(null);
+      let failure: string | null | void;
+      try {
+        failure = await onAccept({
         ...result,
         // Persist the issue label with the template's design so live sends show
         // it too (the shell reads design.issueLabel); previously test-only.
@@ -222,13 +229,25 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
         sourceMaterial: sourceMaterial.trim() || null,
         issueLabel: issueLabel.trim() || result.issueLabel || null,
         verification: result.verification,
-      });
+        });
+      } catch (e) {
+        failure = e instanceof Error ? e.message : "Save failed";
+      } finally {
+        setIsSaving(false);
+      }
+      // Only discard the draft once it is safely saved. On failure the dialog
+      // stays open and the draft (and source text) stays in local storage.
+      if (failure) {
+        setSaveError(failure);
+        return;
+      }
       handleReset();
       onOpenChange(false);
     }
   };
 
   const handleReset = () => {
+    setSaveError(null);
     setStep("prompt");
     setPrompt("");
     setResult(null);
@@ -593,6 +612,13 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
                 />
               </div>
 
+              {saveError && (
+                <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive whitespace-pre-line">
+                  <p className="font-medium">Could not save. Your draft is still here.</p>
+                  <p className="text-xs mt-1">{saveError}</p>
+                </div>
+              )}
+
               {/* Confirm callout */}
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-start gap-3">
                 <Check className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
@@ -643,10 +669,11 @@ export function AICampaignCreator({ open, onOpenChange, segments, onAccept }: AI
               <Button
                 className="gradient-brand text-primary-foreground"
                 onClick={handleAccept}
-                disabled={!verified}
+                disabled={!verified || isSaving}
                 title={verified ? undefined : "Confirm the accuracy check on the Review step first"}
               >
-                <Check className="h-4 w-4 mr-1.5" />Save Campaign
+                {isSaving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Check className="h-4 w-4 mr-1.5" />}
+                {isSaving ? "Saving…" : "Save Campaign"}
               </Button>
             </>
           )}
