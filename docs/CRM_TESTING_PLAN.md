@@ -4,6 +4,25 @@ Source: Fiel's email "Fit Logic CRM testing — saving errors and email setup" (
 
 ---
 
+## 0. Implementation status (updated 2026-10-21)
+
+| Item | Status |
+|---|---|
+| 0.1 Run migrations | **You must run both:** `20260901000001_newsletter_brand_kit.sql`, then `20261022000001_reply_to_and_branded_layout.sql` (adds `email_reply_to` and `branded_layout`). |
+| 1.1 Draft kept on failed save | **Done** (Single Email creator and Sequence Wizard; also fixed silent failures in the Wizard's single-email path) |
+| 1.2 Real error text | **Done.** Root cause found: Settings used `instanceof Error`, but Supabase errors are plain objects, so every real error became a generic "Failed to save settings". Missing-column errors now say a migration is needed. |
+| 1.3 Postal address | **Done:** printed in the plain wrapper footer; live sends to real recipients are blocked without one (test mode exempt) |
+| 1.4 From-name fallback | **Done**, plus a new **Settings → Integrations → Sender identity** card. The old From Name / From Email form was commented out in the code, so there was no way to change it from the UI. Fiel's step 0.3 is only possible after this is deployed. |
+| 2.1 Preserve source wording | **Done as a prompt rule** (ingredients, quantities, preparation words copied as written). Not a structural guarantee; 2.2 is the safety net. |
+| 2.2 Deterministic source check | **Done** (`source-check.ts`). Flags changed prep words ("toasted"), unsupported claim words ("lighter", "alternative") and numbers not in the source; shown in the Accuracy panel. Checked on the pistachio example. Word lists are curated, so other kinds of drift are not caught. |
+| 3 Branded layout (option A) | **Done:** Branded layout switch on templates and sequence campaigns; Wizard "Email style: Branded / Plain" (default Branded) generating a real button; sequences now get the shell. Needs migration 2 for the switches to save. |
+| 4.2 Reply-To | **Done** (setting + sent as `reply_to`). Needs migration 2. |
+| 4.1, 4.3, 4.4 | Not code: domain/DNS, Megan's access review, and Outlook-as-sender are decisions and setup. |
+
+Not verified: nothing here was run against your live database or sent through Resend. `tsc` and `next build` pass; the source check and design restyling were run in isolation.
+
+---
+
 ## 1. Audit — each finding, cause, and who acts
 
 | # | What Fiel saw | Root cause | Evidence | Owner |
@@ -44,7 +63,7 @@ Source: Fiel's email "Fit Logic CRM testing — saving errors and email setup" (
 |---|---|---|---|
 | 0.1 | Run migration `20260901000001_newsletter_brand_kit.sql` in the Supabase SQL editor. Ends with `NOTIFY pgrst, 'reload schema'`. Confirm: Campaigns → Templates shows "Fit Logic Monthly Newsletter — Master". | Dev (Andres) | 5 min |
 | 0.2 | Confirm bucket `emails` exists, is Public, allows authenticated upload (needed for logo). | Dev | 5 min |
-| 0.3 | Settings → Integrations: set **From name** = "Fit Logic Functional Medicine". | Fiel | 2 min |
+| 0.3 | Settings → Integrations → **Sender identity** (new): set From name = "Fit Logic Functional Medicine" and Reply-To. (There was no From-name field in the UI before; the form was commented out.) | Fiel | 2 min |
 | 0.4 | Supply brand assets: PNG/JPG logo (transparent PNG, ~300–600 px wide), address, phone, website, socials, approved disclaimer. | Fiel / Megan | 20 min |
 | 0.5 | Decide the sending domain (see 2.3). | Megan + Andres | decision |
 | 0.6 | Deploy the branch so the fixes in Phase 1 are live. | Dev | — |

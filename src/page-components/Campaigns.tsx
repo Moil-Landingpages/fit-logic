@@ -38,6 +38,7 @@ import { SequenceBuilder, type SequenceStep as BuilderSequenceStep } from "@/com
 import { CampaignRecipients, type Recipient } from "@/components/CampaignRecipients";
 import { CampaignScheduleSettings, type ScheduleConfig } from "@/components/CampaignScheduleSettings";
 import { CampaignDetail } from "@/components/CampaignDetail";
+import { Switch } from "@/components/ui/switch";
 import { describeSaveError } from "@/lib/db-errors";
 import {
   CAMPAIGN_STATUS_CONFIG, TEMPLATE_CATEGORY_CONFIG,
@@ -50,6 +51,7 @@ interface CampaignRow {
   scheduled_at: string | null; sent_at: string | null; stats: any;
   created_at: string; updated_at: string;
   auto_schedule?: boolean; max_sends_per_day?: number;
+  branded_layout?: boolean;
   business_hours_start?: number; business_hours_end?: number;
   business_days?: string[]; recipient_count?: number; sent_count?: number;
   anchor_type?: "relative" | "before_appointment" | "after_appointment";
@@ -62,6 +64,8 @@ type SequenceStep = BuilderSequenceStep;
 interface TemplateRow {
   id: string; name: string; subject: string; preview_text: string | null;
   body_html: string | null; category: string; created_at: string; updated_at: string;
+  /** Send inside the brand shell even when not a newsletter (migration 20261022000001). */
+  branded_layout?: boolean;
 }
 
 interface SegmentRow {
@@ -339,6 +343,9 @@ const Campaigns_Page = () => {
         business_hours_end: scheduleConfig.business_hours_end,
         business_days: scheduleConfig.business_days,
         recipient_count: recipients.length,
+        ...(campaignType === "sequence" && (c as { branded_layout?: boolean }).branded_layout !== undefined
+          ? { branded_layout: !!(c as { branded_layout?: boolean }).branded_layout }
+          : {}),
       };
 
       // For anchor-based sequences, pre-fetch each patient's next scheduled
@@ -529,6 +536,9 @@ const Campaigns_Page = () => {
         body_html: t.body_html, category: t.category,
         design: anyT.design ?? {},
         template_kind: anyT.template_kind ?? "email",
+        // Only sent when the user has touched it, so saving still works on a
+        // database that has not run the branded-layout migration yet.
+        ...(anyT.branded_layout !== undefined ? { branded_layout: !!anyT.branded_layout } : {}),
       };
       if (t.id) {
         // Editing the body of a newsletter invalidates the accuracy sign-off:
@@ -614,6 +624,7 @@ const Campaigns_Page = () => {
       // A duplicate is never the master and is never pre-verified — the new
       // issue's content has not been reviewed yet.
       is_master: false,
+      ...(tpl.branded_layout ? { branded_layout: true } : {}),
       verification_notes: {},
       verified_at: null,
     }).select().single();
@@ -823,6 +834,7 @@ const Campaigns_Page = () => {
       const { data: newCampaign, error } = await supabase.from("campaigns").insert({
         name: result.campaignName, status: "draft", campaign_type: "sequence",
         segment_id: matchSeg?.id || segments[0]?.id || null,
+        ...(result.branded ? { branded_layout: true } : {}),
       }).select().single();
       if (error || !newCampaign) {
         const msg = describeSaveError(error?.message ?? "Unknown error");
@@ -856,6 +868,7 @@ const Campaigns_Page = () => {
       const email = result.emails[0];
       const { data: tpl, error: tplErr } = await supabase.from("email_templates").insert({
         name: result.campaignName, subject: email.subject, preview_text: email.previewText, body_html: email.bodyHtml, category: result.category,
+        ...(result.branded ? { branded_layout: true } : {}),
       }).select().single();
       if (tplErr || !tpl) {
         const msg = describeSaveError(tplErr?.message ?? "The template could not be created.");
@@ -1433,6 +1446,18 @@ const Campaigns_Page = () => {
               {editingCampaign?.campaign_type === "sequence" && (
                 <>
                   <Separator />
+                  <div className="flex items-start justify-between gap-3 rounded-lg border p-3">
+                    <div>
+                      <Label className="text-sm">Branded layout</Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Sends every step inside your brand header and footer from Settings → Brand. Off = plain emails.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={!!editingCampaign?.branded_layout}
+                      onCheckedChange={(v) => setEditingCampaign(p => ({ ...(p as Partial<CampaignRow>), branded_layout: v }))}
+                    />
+                  </div>
                   <div>
                     <Label className="text-sm">Trigger</Label>
                     <Select
@@ -1509,6 +1534,21 @@ const Campaigns_Page = () => {
               </div>
               <div><Label className="text-sm">Subject Line</Label><Input value={editingTemplate?.subject || ""} onChange={e => setEditingTemplate(p => ({ ...p, subject: e.target.value }))} /></div>
               <div><Label className="text-sm">Preview Text</Label><Input value={editingTemplate?.preview_text || ""} onChange={e => setEditingTemplate(p => ({ ...p, preview_text: e.target.value }))} /></div>
+              {(editingTemplate as any)?.template_kind !== "newsletter" && (
+                <div className="flex items-start justify-between gap-3 rounded-lg border p-3">
+                  <div>
+                    <Label className="text-sm">Branded layout</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Sends this email inside your brand header and footer (logo, address, contact, disclaimer) from Settings → Brand.
+                      Off = plain email.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={!!(editingTemplate as any)?.branded_layout}
+                    onCheckedChange={(v) => setEditingTemplate(p => ({ ...(p as any), branded_layout: v }))}
+                  />
+                </div>
+              )}
               <div>
                 <Label className="text-sm">Body</Label>
                 <RichEmailEditor
@@ -1522,7 +1562,8 @@ const Campaigns_Page = () => {
                   design={(editingTemplate as any)?.design ?? {}}
                   onDesignChange={(d) => setEditingTemplate(p => ({ ...(p as any), design: d }))}
                   versionOwner={{ templateId: editingTemplate?.id ?? null }}
-                  newsletterTitle={editingTemplate?.name ?? null}
+                  newsletterTitle={null}
+                  testUsesBrandShell={(editingTemplate as any)?.template_kind === "newsletter" || !!(editingTemplate as any)?.branded_layout}
                   onRestoreMeta={(m) => setEditingTemplate(p => ({
                     ...(p as any),
                     ...(m.subject != null ? { subject: m.subject } : {}),

@@ -35,6 +35,8 @@ interface AIWizardResult {
   rationale: string;
   emails: GeneratedEmail[];
   verification?: GenerationVerification;
+  /** Send inside the brand shell (set from the Email style choice). */
+  branded?: boolean;
 }
 
 interface AISequenceWizardProps {
@@ -69,6 +71,7 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
   // dates or statistics that are not in it.
   const [sourceMaterial, setSourceMaterial] = useState("");
   const [strictGrounding, setStrictGrounding] = useState(true);
+  const [emailStyle, setEmailStyle] = useState<"plain" | "branded">("branded");
   const [verified, setVerified] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -92,6 +95,7 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
           emailCount: parseInt(emailCount),
           sourceMaterial: sourceMaterial.trim() || undefined,
           strictGrounding: strictGrounding && !!sourceMaterial.trim(),
+          emailStyle,
         }),
       });
       const data = await res.json();
@@ -111,6 +115,8 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
             step: 1, subject: data.subject, previewText: data.previewText,
             bodyHtml: data.bodyHtml, delayDays: 0, tip: "Opening email"
           }],
+          verification: data.verification,
+          branded: emailStyle === "branded",
         });
       } else {
         const normalized = {
@@ -120,7 +126,7 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
             delayDays: i === 0 ? 0 : (RECOMMENDED_DELAYS[i] ?? 14),
           })),
         };
-        setResult(normalized);
+        setResult({ ...normalized, branded: emailStyle === "branded" });
       }
       setVerified(false);
       setStep("review");
@@ -267,6 +273,20 @@ export function AISequenceWizard({ open, onOpenChange, segments, onAccept }: AIS
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+
+              <div>
+                <Label className="text-sm">Email style</Label>
+                <Select value={emailStyle} onValueChange={(v) => setEmailStyle(v as "plain" | "branded")}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="branded">Branded — logo header, contact footer, button</SelectItem>
+                    <SelectItem value="plain">Plain — looks like a personal email</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Branded uses the header and footer from Settings → Brand and turns links into a button. Plain suits one-to-one style outreach.
+                </p>
               </div>
 
               <div>

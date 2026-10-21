@@ -22,13 +22,21 @@ export interface NewsletterShellContext {
   title: string | null;
   /** When a person signed off the accuracy check; null = not reviewed. */
   verifiedAt: string | null;
+  /** True for real newsletters, which need the accuracy sign-off before sending. */
+  requiresReview: boolean;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+async function loadBrand(sb: any): Promise<BrandKit> {
+  const { data: settings } = await sb.from("practice_settings").select("*").limit(1).maybeSingle();
+  return brandKitFromSettings(settings);
+}
+
 /**
- * Returns the shell context when `templateId` points at a newsletter template,
- * or null when it does not (or when the schema predates newsletters).
+ * Returns the shell context when `templateId` points at a newsletter template
+ * or a template with the branded layout switched on, or null otherwise (or
+ * when the schema predates newsletters).
  */
 export async function loadNewsletterShellContext(
   sb: any,
@@ -37,28 +45,63 @@ export async function loadNewsletterShellContext(
   if (!templateId) return null;
 
   try {
-    const { data: tpl, error } = await sb
+    // branded_layout comes from a later migration; retry without it so a
+    // database that only has the newsletter migration keeps working.
+    let res = await sb
       .from("email_templates")
-      .select("name, template_kind, design, verified_at")
+      .select("name, template_kind, design, verified_at, branded_layout")
       .eq("id", templateId)
       .maybeSingle();
+    if (res.error) {
+      res = await sb
+        .from("email_templates")
+        .select("name, template_kind, design, verified_at")
+        .eq("id", templateId)
+        .maybeSingle();
+    }
+    const { data: tpl, error } = res;
 
-    if (error || !tpl || tpl.template_kind !== "newsletter") return null;
-
-    const { data: settings } = await sb.from("practice_settings").select("*").limit(1).maybeSingle();
+    if (error || !tpl) return null;
+    const isNewsletter = tpl.template_kind === "newsletter";
+    if (!isNewsletter && !tpl.branded_layout) return null;
 
     const design = (tpl.design ?? null) as NewsletterDesign | null;
     return {
-      brand: brandKitFromSettings(settings),
+      brand: await loadBrand(sb),
       design,
       issueLabel: (design as any)?.issueLabel ?? null,
       // Internal template names ("... — Master") must never become the visible
       // <h1>; only an explicit design.title does.
-      verifiedAt: (tpl.verified_at as string | null) ?? null,
       title: ((design as any)?.title as string | undefined) ?? null,
+      verifiedAt: (tpl.verified_at as string | null) ?? null,
+      requiresReview: isNewsletter,
     };
   } catch (e) {
     console.warn("[newsletter-send] shell context unavailable, falling back to standard wrapper", e);
+    return null;
+  }
+}
+
+/**
+ * Shell context for a sequence campaign with the branded layout on. Applies to
+ * every step. Returns null when the flag is off or the column does not exist.
+ */
+export async function loadBrandedCampaignContext(
+  sb: any,
+  campaign: { branded_layout?: boolean | null } | null | undefined,
+): Promise<NewsletterShellContext | null> {
+  if (!campaign?.branded_layout) return null;
+  try {
+    return {
+      brand: await loadBrand(sb),
+      design: null,
+      issueLabel: null,
+      title: null,
+      verifiedAt: null,
+      requiresReview: false,
+    };
+  } catch (e) {
+    console.warn("[newsletter-send] branded campaign context unavailable", e);
     return null;
   }
 }

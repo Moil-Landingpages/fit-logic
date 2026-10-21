@@ -5,6 +5,7 @@ import { buildFitlogicKnowledgeContext } from "@/lib/fitlogic-knowledge";
 import { serverClient } from "@/lib/supabase";
 import { brandKitFromSettings, DEFAULT_BRAND_KIT, resolveDesign, type NewsletterDesign } from "@/lib/newsletter-brand";
 import { normalizeSections, renderSections } from "@/lib/newsletter-render";
+import { checkAgainstSource } from "@/lib/source-check";
 
 const TEXT_STYLE_FORMAT = `
 EMAIL BODY FORMAT — NEAR-PLAIN-TEXT HTML (critical for deliverability):
@@ -54,6 +55,12 @@ STRICT SOURCE MODE IS ON:
 - You may rewrite, reorganise, summarise and add connective/brand copy, but you may NOT add any new fact that is not in the source.
 - If the source does not support a section you were asked to write, produce that section as brand/educational framing with no factual claims, and add a note to "unverifiedClaims".
 - Set "groundedInSource" to true only if every factual statement traces to the source material.
+
+PRESERVE THE SOURCE'S WORDING (recipes, ingredient lists, steps, quantities, dosages, named products):
+- Copy ingredient names, quantities, units, preparation words (raw, toasted, chopped, soaked…), temperatures, times and numbered steps EXACTLY as written. Do not substitute, "improve", upgrade or drop a descriptor: "raw pistachios" must stay "raw pistachios".
+- Do not add descriptors, adjectives, comparisons or health framing the source does not use (no "lighter", "healthier", "a great alternative", "nutritious").
+- Only the opening, transitions and sign-off may be rewritten freely; everything factual is carried over as-is.
+- If a source detail is ambiguous, repeat it as written rather than interpreting it.
 `;
 
 /** Newsletter structure contract — used for the sectioned newsletter path. */
@@ -115,6 +122,7 @@ export async function POST(req: NextRequest) {
       includeHeroImage,
       includeCtaButton,
       designNotes,
+      emailStyle,
     } = body ?? {};
 
     if (!prompt) {
@@ -368,7 +376,11 @@ You MUST use the generate_newsletter tool to return your response.`;
           hadSourceMaterial: trimmedSource.length > 0,
           strictMode: useStrictSource,
           factsUsed: Array.isArray(fnArgs.factsUsed) ? fnArgs.factsUsed : [],
-          unverifiedClaims: Array.isArray(fnArgs.unverifiedClaims) ? fnArgs.unverifiedClaims : [],
+          unverifiedClaims: [
+            ...(Array.isArray(fnArgs.unverifiedClaims) ? fnArgs.unverifiedClaims : []),
+            // Deterministic net: flags drift the model did not report itself.
+            ...(trimmedSource ? checkAgainstSource(trimmedSource, bodyHtml).flags : []),
+          ],
         },
       });
     }
@@ -376,6 +388,30 @@ You MUST use the generate_newsletter tool to return your response.`;
     /* ---------------------------------------------------------------- */
     /* Existing single-email / sequence paths (unchanged behaviour)      */
     /* ---------------------------------------------------------------- */
+    // "branded" emails are sent inside the brand shell (logo header, contact
+    // footer, disclaimer), so the body is only the content fragment: paragraphs
+    // plus a real, accent-coloured CTA button. "plain" keeps the deliberately
+    // near-plain-text format that suits cold outreach.
+    const isBrandedStyle = emailStyle === "branded";
+    let brandedAccent: string = DEFAULT_BRAND_KIT.accentColor;
+    if (isBrandedStyle) {
+      try {
+        const { data: st } = await serverClient().from("practice_settings").select("*").limit(1).maybeSingle();
+        brandedAccent = brandKitFromSettings(st).accentColor;
+      } catch (e) {
+        console.error("generate-campaign: brand accent load failed, using default", e);
+      }
+    }
+    const BRANDED_FRAGMENT_FORMAT = `
+EMAIL BODY FORMAT — BRANDED CONTENT FRAGMENT:
+- The app wraps your output in the Fit Logic branded header and footer. Do NOT write a header, logo, footer, address, unsubscribe line or outer <table>/<html>/<body>.
+- Use <p> paragraphs (greeting, 2-3 short body paragraphs under 80 words each, sign-off). Inline style on each <p>: margin:0 0 14px;font-size:15px;line-height:1.6;
+- If a link or call to action is needed, render it as a BUTTON, never as a bare URL in the text: <p style="margin:20px 0;text-align:center;"><a href="URL" style="display:inline-block;background:${brandedAccent};color:#ffffff;font-weight:600;text-decoration:none;padding:13px 30px;border-radius:6px;">3-5 word label</a></p>
+- Exactly one button per email. Never print the raw URL as visible text.
+- No images, no scripts, no extra tables.
+`;
+    const textOrBrandedFormat = isBrandedStyle ? BRANDED_FRAGMENT_FORMAT : TEXT_STYLE_FORMAT;
+
     const systemPrompt = isSequence
       ? `You are Fit Logic's email strategist. Generate a complete multi-email sequence based on the user's request.
 
@@ -412,7 +448,7 @@ ${ctaUrlBlock}
 
 ${PERSONALIZATION}
 
-${TEXT_STYLE_FORMAT}
+${textOrBrandedFormat}
 
 Suggest optimal timing and the best matching audience segment.`
       : `You are Fit Logic's campaign strategist. Generate a complete email campaign based on the user's request.
@@ -447,11 +483,11 @@ ${ctaUrlBlock}
 
 ${PERSONALIZATION}
 
-EMAIL BODY FORMAT — choose based on the category you select:
+${isBrandedStyle ? BRANDED_FRAGMENT_FORMAT : `EMAIL BODY FORMAT — choose based on the category you select:
 - If category is "welcome" or "promotional" (recipient opted in, expects branding):
 ${PROMO_HTML_FORMAT}
 - If category is "followup", "educational", or "reactivation" (personal outreach):
-${TEXT_STYLE_FORMAT}`;
+${TEXT_STYLE_FORMAT}`}`;
 
     // factsUsed / unverifiedClaims are appended to both legacy schemas so the
     // review step can show the same verification checklist everywhere.
@@ -541,7 +577,17 @@ ${TEXT_STYLE_FORMAT}`;
         hadSourceMaterial: trimmedSource.length > 0,
         strictMode: useStrictSource,
         factsUsed: Array.isArray(fnArgs.factsUsed) ? fnArgs.factsUsed : [],
-        unverifiedClaims: Array.isArray(fnArgs.unverifiedClaims) ? fnArgs.unverifiedClaims : [],
+        unverifiedClaims: [
+          ...(Array.isArray(fnArgs.unverifiedClaims) ? fnArgs.unverifiedClaims : []),
+          ...(trimmedSource
+            ? checkAgainstSource(
+                trimmedSource,
+                [fnArgs.bodyHtml, ...(Array.isArray(fnArgs.emails) ? fnArgs.emails.map((e: { bodyHtml?: string }) => e?.bodyHtml) : [])]
+                  .filter((x): x is string => typeof x === "string")
+                  .join("\n"),
+              ).flags
+            : []),
+        ],
       },
     });
   } catch (e) {

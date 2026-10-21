@@ -57,6 +57,8 @@ interface RichEmailEditorProps {
   /** Newsletter header metadata, passed through to the test send. */
   issueLabel?: string | null;
   newsletterTitle?: string | null;
+  /** Test sends use the branded shell. Pass false for plain-layout emails so the test matches what is sent. Default true. */
+  testUsesBrandShell?: boolean;
   /** Called when a version restore also changes subject/preview text. */
   onRestoreMeta?: (meta: { subject?: string | null; previewText?: string | null }) => void;
 }
@@ -108,6 +110,7 @@ export function RichEmailEditor({
   versionOwner,
   issueLabel = null,
   newsletterTitle = null,
+  testUsesBrandShell = true,
   onRestoreMeta,
 }: RichEmailEditorProps) {
   const [mode, setMode] = useState<EditorMode>("visual");
@@ -1747,7 +1750,7 @@ export function RichEmailEditor({
             subject={subject ?? "Newsletter preview"}
             html={value}
             previewText={previewText}
-            useNewsletterShell
+            useNewsletterShell={testUsesBrandShell}
             design={design}
             issueLabel={issueLabel}
             title={newsletterTitle}

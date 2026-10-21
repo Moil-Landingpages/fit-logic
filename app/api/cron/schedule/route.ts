@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { serverClient } from "@/lib/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendEmail, wrapEmailHtml, sanitizeEmailHtml } from "@/lib/emailSender";
-import { loadNewsletterShellContext, wrapNewsletter, findNewsletterSendBlockers } from "@/lib/newsletter-send";
+import { loadNewsletterShellContext, loadBrandedCampaignContext, wrapNewsletter, findNewsletterSendBlockers } from "@/lib/newsletter-send";
 import { applyEmailVars, buildPatientVars } from "@/lib/email-vars";
 import { tryClaimCampaignLock, releaseCampaignLock } from "@/lib/campaign-lock";
 import { signUnsubToken } from "@/lib/unsub-token";
@@ -240,7 +240,7 @@ async function processCampaigns(supabase: SupabaseClient, baseUrl: string) {
     // for ordinary campaigns and on pre-migration databases, in which case the
     // existing wrapEmailHtml path is used unchanged.
     const newsletterCtx = isSequence
-      ? null
+      ? await loadBrandedCampaignContext(supabase, campaign as { branded_layout?: boolean | null })
       : await loadNewsletterShellContext(supabase, campaign.template_id);
     if (!isSequence && campaign.template_id) {
       const tplAny = supabase.from("email_templates") as unknown as {
@@ -273,7 +273,7 @@ async function processCampaigns(supabase: SupabaseClient, baseUrl: string) {
         templateBody = tmpl.body_html ?? "";
         if (newsletterCtx) {
           const blockers = findNewsletterSendBlockers(templateBody);
-            if (!newsletterCtx.verifiedAt) {
+            if (newsletterCtx.requiresReview && !newsletterCtx.verifiedAt) {
             blockers.push("the accuracy check has not been signed off — open Campaigns → Templates and click Mark as reviewed");
           }
           if (!newsletterCtx.brand.clinicAddress?.trim()) {

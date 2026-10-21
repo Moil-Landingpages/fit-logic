@@ -213,3 +213,13 @@ Test sends require an email provider connected in **Settings → Integrations**.
 - The AI does not generate images; it produces labelled placeholders describing
   the photo to use.
 - Version history keeps the 50 most recent snapshots per template.
+
+---
+
+## 9. Branded layout, sender identity and source fidelity (Oct 2026)
+
+- **Branded layout.** Newsletters always send in the brand shell. Any single-email template, and any sequence campaign (all steps), can also use it: switch **Branded layout** on in the template or campaign editor, or choose **Email style: Branded** in the AI Sequence Wizard (the default). Branded emails get a real button instead of a bare link. **Plain** keeps the personal-email look for cold outreach.
+- **Sender identity.** Settings → Integrations → *Sender identity*: From name, From email and Reply-To. Campaign email is sent through Resend, not through the connected Gmail/Outlook account; replies go to the Reply-To address if set, otherwise the From address. A server `FROM_EMAIL` variable overrides the From email.
+- **Postal address.** Required for sends to real recipients; set it in Settings → Brand. It now also appears in the footer of plain emails.
+- **Keeping copy close to the source.** Paste the source text and leave "Only use facts from source" on. Ingredient lists, quantities and preparation words are copied as written, and the Accuracy panel flags any risky word or number in the draft that is not in your source. Strict mode means *no new facts*; it does not mean no rewording, so read the flags.
+- **If a save fails,** the draft stays on screen. Copy the error text and send it to your developer; a "migration not applied" message means a database step is pending.
